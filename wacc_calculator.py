@@ -108,18 +108,62 @@ class WaccCalculator:
 
 
     
-    def calculate_wacc_scenarios(self):
+    def calculate_wacc_scenarios(self, sensitivity=None):
 
         # 1. Calculate country risk premiums and country default spreads
         calculated_data = self.calculate_country_risk()
 
         # 2. Calculate risk free rate
+        calculated_data = self.evaluate_risk_free(data=calculated_data, sensitivity=sensitivity)
 
         # 3. Calculate lenders margin and equity risk premium
+        calculated_data = self.evaluate_instrument_parameters(data=calculated_data, sensitivity=sensitivity)
 
         # 4. Calculate technology category premium
+        calculated_data = self.evaluate_tech_risk(data=calculated_data, sensitivity=sensitivity)
 
         # 5. Sum all to give the total
+        calculated_data = self.evaluate_total_costs(data=calculated_data, sensitivity=sensitivity)
+
+
+    def evaluate_risk_free(data, sensitivity=None):
+
+        # Evaluate risk-free rate dependent on sensitivities
+        if sensitivity == "High":
+            rf_rate = 5.25
+        elif sensitivity == "Low":
+            rf_rate = 0.75
+        else:
+            rf_rate = 3
+        
+        # Set risk free rate
+        data["Risk Free Rate"] = rf_rate
+
+        return data
+    
+    def evaluate_instrument_parameters(self, data, sensitivity=None):
+
+        # Set limits
+        lm_low = 0.5
+        lm_high = 1.5
+
+        # Calculate based on country risk premium
+        data["Lenders Margin"] = lm_low + (data["Country Risk Premium"] / data["Country Risk Premium"].max()) * (lm_high - lm_low)
+
+        # Set limits for ERP
+        ERP = self.CRP[self.CRP["Country code"] == "ERP"][range(2015, 2025)]
+        if sensitivity == "High":
+            erp_uniform = ERP.max()
+        elif sensitivity == "Low":
+            erp_uniform = ERP.min()
+        else:
+            erp_uniform = ERP.mean()
+
+        # Set ERP rate
+        data["Equity Risk Premium"] = erp_uniform
+
+        return data
+        
 
     def calculate_country_risk(self):
 
@@ -137,5 +181,6 @@ class WaccCalculator:
         # 3. Convert GDP per capita to country default spread
         collated_results["Country Default Spread"] = self.cds_gdp * collated_results["GDP per capita"] ** self.cds
 
-        # 3. Convert into long format
+        return collated_results
+
         
