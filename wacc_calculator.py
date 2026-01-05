@@ -6,7 +6,7 @@ from scipy.optimize import curve_fit
 
 class WaccCalculator:
 
-    def __init__(self, GDP_data, SSP_data, CRP, CDS):
+    def __init__(self, GDP_data, SSP_data, CRP, CDS, tax_data):
         
         
         # Read in historical and future GDP data
@@ -17,6 +17,10 @@ class WaccCalculator:
         # Read in historical CRP and CDS data
         self.CDS = pd.read_excel("./DATA/" + CDS, sheet_name="CDS")
         self.CRP = pd.read_excel("./DATA/" + CRP, sheet_name="CRP")
+
+        # Read in tax data
+        self.tax_data = pd.read_csv("./DATA/"+ tax_data)
+
 
         # Set other assumptions
         self.category_margin = 3
@@ -125,8 +129,10 @@ class WaccCalculator:
         # 5. Sum all to give the total
         calculated_data = self.evaluate_total_costs(data=calculated_data, sensitivity=sensitivity)
 
+        return calculated_data
 
-    def evaluate_risk_free(data, sensitivity=None):
+
+    def evaluate_risk_free(self, data, sensitivity=None):
 
         # Evaluate risk-free rate dependent on sensitivities
         if sensitivity == "High":
@@ -144,8 +150,8 @@ class WaccCalculator:
     def evaluate_instrument_parameters(self, data, sensitivity=None):
 
         # Set limits
-        lm_low = 0.5
-        lm_high = 1.5
+        lm_low = 1.5
+        lm_high = 2.5
 
         # Calculate based on country risk premium
         data["Lenders Margin"] = lm_low + (data["Country Risk Premium"] / data["Country Risk Premium"].max()) * (lm_high - lm_low)
@@ -153,17 +159,82 @@ class WaccCalculator:
         # Set limits for ERP
         ERP = self.CRP[self.CRP["Country code"] == "ERP"][range(2015, 2025)]
         if sensitivity == "High":
-            erp_uniform = ERP.max()
+            erp_uniform = ERP.values.max()
         elif sensitivity == "Low":
-            erp_uniform = ERP.min()
+            erp_uniform = ERP.values.min()
         else:
-            erp_uniform = ERP.mean()
+            erp_uniform = ERP.values.mean()
 
         # Set ERP rate
         data["Equity Risk Premium"] = erp_uniform
 
         return data
+
+
+    def evaluate_tech_risk(self, data, sensitivity=None):
+
+        # Duplicate dataframe and add clean vs fossil category
+        original_data = data
+        duplicated_data = data.copy()
+
+        # Add technology category and concatenate
+        original_data["Technology"] = "Clean"
+        duplicated_data["Technology"] = "Fossil"
+        new_data = pd.concat([original_data, duplicated_data], ignore_index=True)
+
+        # For clean category, apply SSP-specific relationships
+        medium_ssp = ["SSP2", "SSP3", "SSP4"]
+        new_data.loc[(new_data["Scenario"] == "SSP1")*(new_data["Technology"] == "Clean"), 
+                     "Technology Risk Premium"] = self.category_margin * ( 1 - (new_data["Year"].astype(int) - 2025)/ (2050 - 2025))
+        new_data.loc[(new_data["Scenario"].isin(medium_ssp))*(new_data["Technology"] == "Clean"), 
+                     "Technology Risk Premium"] = self.category_margin * ( 1 - (new_data["Year"].astype(int) - 2025)/ 2 / (2050 - 2025))
+        new_data.loc[(new_data["Scenario"] == "SSP5")*(new_data["Technology"] == "Clean"), 
+                     "Technology Risk Premium"] = self.category_margin 
         
+
+        # For fossil category, apply SSP-specific relationships
+        new_data.loc[(new_data["Scenario"] == "SSP1")*(new_data["Technology"] == "Fossil"), 
+                     "Technology Risk Premium"] = self.category_margin * (new_data["Year"].astype(int) - 2025)/ (2050 - 2025)
+        new_data.loc[(new_data["Scenario"].isin(medium_ssp))*(new_data["Technology"] == "Fossil"), 
+                     "Technology Risk Premium"] = self.category_margin * (new_data["Year"].astype(int) - 2025)/ 2 / (2050 - 2025)
+        new_data.loc[(new_data["Scenario"] == "SSP5")*(new_data["Technology"] == "Fossil"), 
+                     "Technology Risk Premium"] = 0
+        
+        # Apply a limit
+        new_data["Technology Risk Premium"] = new_data["Technology Risk Premium"].clip(upper=3.0, lower=0)
+
+        return new_data
+
+
+    def evaluate_total_costs(self, data, sensitivity=None):
+
+        # Extract tax rate
+        tax_rate = self.tax_data
+        tax_rate.loc[tax_rate["2024"]=="NA", "2024"] = np.nanmean(tax_rate["2024"])
+
+        # Merge tax rate onto main dataset
+        data = data.merge(tax_rate[["Country code", "2024"]], how="left", on="Country code").rename(columns={"2024":"Tax Rate"})       
+
+        # Calculate the debt share
+        data["Debt Share"] = 80 - 40 * (data["Country Risk Premium"] - 
+                                        data["Country Risk Premium"].min()) / (data["Country Risk Premium"].max() - 
+                                                                               data["Country Risk Premium"].min())
+
+        # Calculate the cost of debt
+        data["Cost of Debt"] = data["Risk Free Rate"] + data["Country Default Spread"] + data["Lenders Margin"] + data["Technology Risk Premium"]
+
+        # Calculate the cost of equity
+        data["Cost of Equity"] = data["Risk Free Rate"] + data["Country Risk Premium"] + data["Equity Risk Premium"] + data["Technology Risk Premium"]
+
+        # Calculate the overall cost of capital
+        data["Overall Cost of Capital"] = data["Debt Share"] / 100 * data["Cost of Debt"] * (1 - data["Tax Rate"]/100) + data["Cost of Equity"] * (1 - data["Debt Share"]/100)
+        calculated_data = data.copy()
+
+        # Merge on country full names
+        calculated_data = calculated_data.merge(self.GDP_data[["Country Name", "Country code"]], how="left", on="Country code")
+
+        return calculated_data
+
 
     def calculate_country_risk(self):
 
@@ -175,11 +246,27 @@ class WaccCalculator:
         collated_results = interpolated_GDP.loc[interpolated_GDP["Scenario"] != "Historical Reference", :].melt(id_vars=["Model", "Scenario", "Country code"], 
                                                                                                                 var_name="Year", value_name="GDP per capita")
 
+        # Extract 2025 values for GDP per capita and merge on
+        gdp_results = collated_results.copy()
+        gdp_2025 = gdp_results[(gdp_results["Year"]==2025) & (gdp_results["Scenario"]=="SSP1")].rename(columns={"GDP per capita":"GDP per capita 2025"})[["Country code", "GDP per capita 2025"]]
+        collated_results = collated_results.merge(gdp_2025, how="left", on="Country code")
+
+        # Extract 2024 values for CRP and CDS and merge on
+        crp_2024 = self.CRP[["Country code", 2024]].rename(columns={2024:"Country Risk Premium"})
+        cds_2024 = self.CDS[["Country code", 2024]].rename(columns={2024:"Country Default Spread"})
+        collated_results = collated_results.merge(crp_2024, how="left", on="Country code")
+        collated_results = collated_results.merge(cds_2024, how="left", on="Country code")
+
         # 2. Convert GDP per capita to country risk premium 
-        collated_results["Country Risk Premium"] = self.country_risk_gdp * collated_results["GDP per capita"] ** self.country_risk
+        collated_results["Country Risk Premium"] = collated_results["Country Risk Premium"] * (collated_results["GDP " \
+        "per capita"] / collated_results["GDP per capita 2025"]) ** self.country_risk
 
         # 3. Convert GDP per capita to country default spread
-        collated_results["Country Default Spread"] = self.cds_gdp * collated_results["GDP per capita"] ** self.cds
+        collated_results["Country Default Spread"] = collated_results["Country Default Spread"] * (collated_results["GDP " \
+        "per capita"] / collated_results["GDP per capita 2025"]) ** self.cds
+
+        # 4. Drop intermediate columns
+        collated_results = collated_results.drop(columns=["GDP per capita 2025"], axis=1)
 
         return collated_results
 
