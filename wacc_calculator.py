@@ -6,7 +6,7 @@ from scipy.optimize import curve_fit
 
 class WaccCalculator:
 
-    def __init__(self, GDP_data, SSP_data, CRP, CDS, tax_data):
+    def __init__(self, GDP_data, SSP_data, CRP, CDS, tax_data, debt_data, inflation_data, deficit_data):
         
         
         # Read in historical and future GDP data
@@ -20,17 +20,20 @@ class WaccCalculator:
 
         # Read in tax data
         self.tax_data = pd.read_csv("./DATA/"+ tax_data)
+        self.debt_data = pd.read_csv("./DATA/"+ debt_data)
+        self.inflation_data = pd.read_csv("./DATA/"+ inflation_data)
+        self.deficit_data = pd.read_csv("./DATA/"+ deficit_data)
 
 
         # Set other assumptions
         self.category_margin = 3
-        self.country_risk_gdp, self.country_risk = self.evaluate_crp_gdp()
-        self.cds_gdp, self.cds = self.evaluate_cds_gdp()
+        self.country_risk_gdp = self.evaluate_crp_gdp_v2()
+        self.cds_gdp = self.evaluate_cds_gdp_v2()
 
 
     def convert_gdp_terms(self):
 
-        # Convert from 2015 to 2017
+        # Convert from 2015 to 2017 using IMF world inflation rates
         self.GDP_data[self.GDP_data.select_dtypes(include=['number']).columns] *= 1.027 * 1.033 
 
         # Change tracking
@@ -72,7 +75,132 @@ class WaccCalculator:
         print(f"Exponent: {exponent}")
 
         return X_0, exponent
+
+
+    def evaluate_crp_gdp_v2(self):
+
+        def power_law(x, a, b):
+            return a * x**b
+
+        # Selected years
+        selected_years = [str(year) for year in range(2015, 2025)]
+        selected_years.append("Country code")
+        
+        # Get GDP values with years and country codes
+        selected_GDP = self.GDP_data[selected_years].melt(id_vars="Country code", value_name='GDP', var_name="Year")
+        selected_GDP["Year"] = selected_GDP["Year"].astype(int)
+
+        # Get inflation rates with years and country codes
+        selected_inflation = self.inflation_data[selected_years].melt(id_vars="Country code", value_name='Inflation', var_name="Year")
+        selected_inflation["Year"] = selected_inflation["Year"].astype(int)
+        selected_inflation = selected_inflation[["Year" ,"Country code", "Inflation"]]
+
+        # Get deficit rates with years and country codes
+        selected_deficit = self.deficit_data[selected_years].melt(id_vars="Country code", value_name='Deficit', var_name="Year")
+        selected_deficit["Year"] = selected_deficit["Year"].astype(int)
+        selected_deficit = selected_deficit[["Year" ,"Country code", "Deficit"]]
+
+        # Get government debt rates with years and country codes
+        selected_debt = self.debt_data[selected_years].melt(id_vars="Country code", value_name='Debt', var_name="Year")
+        selected_debt["Year"] = selected_debt["Year"].astype(int)
+        selected_debt = selected_debt[["Year" ,"Country code", "Debt"]]
+
+
+
+        # Merge CRP data with GDP data
+        long_CRP = self.CRP.melt(id_vars=["Country code", "Country Risk Premium", "Country"], value_name="CRP", var_name="Year")
+        long_CRP["Year"] = long_CRP["Year"].astype(int)
+        merged_data = long_CRP.merge(selected_GDP, how="left", on=["Country code","Year"]).merge(
+            selected_inflation, how="left", on=["Country code","Year"]).merge(
+                selected_deficit, how="left", on=["Country code","Year"]).merge(
+                    selected_debt, how="left", on=["Country code","Year"])
+
+
+        # Calculate relationship between crp and GDP
+        merged_data = merged_data.dropna(subset=["GDP", "CRP", "Inflation", "Deficit", "Debt"], axis="index")
+        X_values = np.column_stack([
+            np.log(merged_data["GDP"]),
+            merged_data["Inflation"],
+            merged_data["Deficit"],
+            merged_data["Debt"]
+        ])
+
+        y_values = merged_data["CRP"].values
+        model = LinearRegression()
+        model.fit(X_values, y_values)
+
+        # Get values
+        beta0 = model.intercept_
+        gdp_coefficient, beta2, beta3, beta4 = model.coef_
+
+        # Compute R2 Predictions
+        print(f'coefficient of determination: {model.score(X_values, y_values)}')
+        print(f"GDP coefficient: {gdp_coefficient}")
+
+
+        return gdp_coefficient
     
+    def evaluate_cds_gdp_v2(self):
+
+        def power_law(x, a, b):
+            return a * x**b
+
+        # Selected years
+        selected_years = [str(year) for year in range(2015, 2025)]
+        selected_years.append("Country code")
+        
+        # Get GDP values with years and country codes
+        selected_GDP = self.GDP_data[selected_years].melt(id_vars="Country code", value_name='GDP', var_name="Year")
+        selected_GDP["Year"] = selected_GDP["Year"].astype(int)
+
+        # Get inflation rates with years and country codes
+        selected_inflation = self.inflation_data[selected_years].melt(id_vars="Country code", value_name='Inflation', var_name="Year")
+        selected_inflation["Year"] = selected_inflation["Year"].astype(int)
+        selected_inflation = selected_inflation[["Year" ,"Country code", "Inflation"]]
+
+        # Get deficit rates with years and country codes
+        selected_deficit = self.deficit_data[selected_years].melt(id_vars="Country code", value_name='Deficit', var_name="Year")
+        selected_deficit["Year"] = selected_deficit["Year"].astype(int)
+        selected_deficit = selected_deficit[["Year" ,"Country code", "Deficit"]]
+
+        # Get government debt rates with years and country codes
+        selected_debt = self.debt_data[selected_years].melt(id_vars="Country code", value_name='Debt', var_name="Year")
+        selected_debt["Year"] = selected_debt["Year"].astype(int)
+        selected_debt = selected_debt[["Year" ,"Country code", "Debt"]]
+
+
+
+        # Merge CRP data with GDP data
+        long_CRP = self.CDS.melt(id_vars=["Country code", "Country", "Rating-based Default Spread"], value_name="CDS", var_name="Year")
+        long_CRP["Year"] = long_CRP["Year"].astype(int)
+        merged_data = long_CRP.merge(selected_GDP, how="left", on=["Country code","Year"]).merge(
+            selected_inflation, how="left", on=["Country code","Year"]).merge(
+                selected_deficit, how="left", on=["Country code","Year"]).merge(
+                    selected_debt, how="left", on=["Country code","Year"])
+
+
+        # Calculate relationship between crp and GDP
+        merged_data = merged_data.dropna(subset=["GDP", "CDS", "Inflation", "Deficit", "Debt"], axis="index")
+        X_values = np.column_stack([
+            np.log(merged_data["GDP"]),
+            merged_data["Inflation"],
+            merged_data["Deficit"],
+            merged_data["Debt"]
+        ])
+
+        y_values = merged_data["CDS"].values
+        model = LinearRegression()
+        model.fit(X_values, y_values)
+
+        # Get values
+        beta0 = model.intercept_
+        gdp_coefficient, beta2, beta3, beta4 = model.coef_
+
+        # Compute R2 Predictions
+        print(f'coefficient of determination: {model.score(X_values, y_values)}')
+        print(f"GDP coefficient: {gdp_coefficient}")
+
+        return gdp_coefficient
 
     def evaluate_cds_gdp(self):
 
@@ -258,12 +386,12 @@ class WaccCalculator:
         collated_results = collated_results.merge(cds_2024, how="left", on="Country code")
 
         # 2. Convert GDP per capita to country risk premium 
-        collated_results["Country Risk Premium"] = collated_results["Country Risk Premium"] * (collated_results["GDP " \
-        "per capita"] / collated_results["GDP per capita 2025"]) ** self.country_risk
+        collated_results["Country Risk Premium"] = collated_results["Country Risk Premium"] + self.country_risk_gdp * np.log(collated_results["GDP " \
+        "per capita"] / collated_results["GDP per capita 2025"]) 
 
         # 3. Convert GDP per capita to country default spread
-        collated_results["Country Default Spread"] = collated_results["Country Default Spread"] * (collated_results["GDP " \
-        "per capita"] / collated_results["GDP per capita 2025"]) ** self.cds
+        collated_results["Country Default Spread"] = collated_results["Country Risk Premium"] + self.cds_gdp * np.log(collated_results["GDP " \
+        "per capita"] / collated_results["GDP per capita 2025"]) 
 
         # 4. Drop intermediate columns
         collated_results = collated_results.drop(columns=["GDP per capita 2025"], axis=1)

@@ -43,7 +43,8 @@ st.write(
 
 
 wacc_calculator = WaccCalculator(GDP_data="GDP_Historical.csv", SSP_data="SSP_OECD_ENV.csv", CRP="Collated_CRP_CDS.xlsx", 
-                                 CDS="Collated_CRP_CDS.xlsx", tax_data="CORPORATE_TAX_DATA.csv")
+                                 CDS="Collated_CRP_CDS.xlsx", tax_data="CORPORATE_TAX_DATA.csv", debt_data="IMF_Government_Debt.csv", 
+                                 inflation_data = "IMF_Inflation_Rates.csv", deficit_data="IMF_Overall_Balance.csv")
 scenario = wacc_calculator.calculate_wacc_scenarios()
 #central_scenario = wacc_calculator.calculate_wacc_scenarios(sensitivity=None)
 #high_scenario = wacc_calculator.calculate_wacc_scenarios(sensitivity="High")
