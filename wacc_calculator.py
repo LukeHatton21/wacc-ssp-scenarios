@@ -1,12 +1,13 @@
 import pandas as pd
 import numpy as np
 import numpy as np
+import streamlit as st
 from sklearn.linear_model import LinearRegression
 from scipy.optimize import curve_fit
 
 class WaccCalculator:
 
-    def __init__(self, GDP_data, SSP_data, CRP, CDS, tax_data, debt_data, inflation_data, deficit_data):
+    def __init__(self, GDP_data, SSP_data, CRP, CDS, tax_data, debt_data, inflation_data, deficit_data, country_coding):
         
         
         # Read in historical and future GDP data
@@ -23,6 +24,7 @@ class WaccCalculator:
         self.debt_data = pd.read_csv("./DATA/"+ debt_data)
         self.inflation_data = pd.read_csv("./DATA/"+ inflation_data)
         self.deficit_data = pd.read_csv("./DATA/"+ deficit_data)
+        self.country_coding = pd.read_csv("./DATA/" + country_coding)
 
 
         # Set other assumptions
@@ -257,8 +259,31 @@ class WaccCalculator:
         # 5. Sum all to give the total
         calculated_data = self.evaluate_total_costs(data=calculated_data, sensitivity=sensitivity)
 
+        # 6. Merge additional data and calculate medians
+        calculated_data = self.calculate_aggregates(calculated_data)
+
         return calculated_data
 
+
+    def calculate_aggregates(self, data):
+        
+        # Merge on country full names
+        data = data.merge(self.country_coding.drop(columns=["Country Name"]), how="left", on="Country code")
+        copied_data = data.copy()
+
+        # Calculate median for each region and wb_income_group
+        median_results_region = copied_data[["Region", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology"]].groupby(['Scenario', 'Year', "Technology", 'Region']).mean().reset_index()
+        median_results_region["Country Name"] = median_results_region["Region"] + " Mean"
+
+        median_results_income = copied_data[["wb_income_group", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology"]].groupby(['Scenario', 'Year', "Technology", 'wb_income_group']).mean().reset_index()
+        median_results_income["Country Name"] = median_results_income["wb_income_group"] + " Mean"
+
+        median_results_aggs = copied_data[["emde_advanced", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology"]].groupby(['Scenario', 'Year', "Technology", 'emde_advanced']).mean().reset_index()
+        median_results_aggs["Country Name"] = median_results_aggs["emde_advanced"] + " Mean"
+        aggregated_data = pd.concat([data, median_results_region, median_results_income, median_results_aggs], ignore_index=True)
+        st.write(aggregated_data)
+
+        return aggregated_data
 
     def evaluate_risk_free(self, data, sensitivity=None):
 
@@ -395,6 +420,10 @@ class WaccCalculator:
 
         # 4. Drop intermediate columns
         collated_results = collated_results.drop(columns=["GDP per capita 2025"], axis=1)
+
+        # Clip
+        collated_results["Country Risk Premium"] = collated_results["Country Risk Premium"].clip(lower=0)
+        collated_results["Country Default Spread"] = collated_results["Country Default Spread"].clip(lower=0)
 
         return collated_results
 

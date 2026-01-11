@@ -1,6 +1,8 @@
 import streamlit as st
 from wacc_calculator import WaccCalculator
 import altair as alt
+import matplotlib.pyplot as plt
+
 
 def plot_comparison_chart_equity(df):
    # Melt dataframe
@@ -34,6 +36,36 @@ def plot_comparison_chart_debt(df):
 ).properties(width=700)
     st.write(chart)
 
+def plot_ssp_comparison(df):
+    chart = (
+        alt.Chart(df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X('Year:O', title='Year'),
+            y=alt.Y('Overall Cost of Capital:Q', title='Overall Cost of Capital (%)'),
+            color=alt.Color('Scenario:N', title='Scenario'),
+            column=alt.Column('Country Name:N', title='Country Name'),
+            tooltip=['Year', 'Scenario', 'Overall Cost of Capital']
+        )
+        .properties(width=700)
+    )
+
+    st.write(chart)
+
+def plot_ssp_comparison_matplotlib(df):
+    plt.figure(figsize=(10, 6))
+    for scenario in df['Scenario'].unique():
+        scenario_data = df[df['Scenario'] == scenario]
+        plt.plot(scenario_data['Year'], scenario_data['Overall Cost of Capital'], marker='o', label=scenario)
+
+    plt.title('Overall Cost of Capital by Scenario')
+    plt.xlabel('Year')
+    plt.ylabel('Overall Cost of Capital (%)')
+    plt.legend(title='Scenario')
+    plt.tight_layout()
+    plt.savefig('ssp_comparison_matplotlib.png')  # Save the figure as a PNG file
+    plt.show()
+
 
 
 st.title("🎈 SSP-linked Cost of Capital Scenarios")
@@ -44,7 +76,7 @@ st.write(
 
 wacc_calculator = WaccCalculator(GDP_data="GDP_Historical.csv", SSP_data="SSP_OECD_ENV.csv", CRP="Collated_CRP_CDS.xlsx", 
                                  CDS="Collated_CRP_CDS.xlsx", tax_data="CORPORATE_TAX_DATA.csv", debt_data="IMF_Government_Debt.csv", 
-                                 inflation_data = "IMF_Inflation_Rates.csv", deficit_data="IMF_Overall_Balance.csv")
+                                 inflation_data = "IMF_Inflation_Rates.csv", deficit_data="IMF_Overall_Balance.csv", country_coding="Country_Coding.csv")
 scenario = wacc_calculator.calculate_wacc_scenarios()
 #central_scenario = wacc_calculator.calculate_wacc_scenarios(sensitivity=None)
 #high_scenario = wacc_calculator.calculate_wacc_scenarios(sensitivity="High")
@@ -60,4 +92,7 @@ country = st.selectbox(
 # Select data based on input
 selected_data = scenario.loc[(scenario["Scenario"] == SSP) & (scenario["Country Name"] == country)  & (scenario["Technology"] == "Clean")]
 plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium"]])
-plot_comparison_chart_debt(selected_data[["Year", "Risk Free Rate", "Country Default Spread", "Lenders Margin", "Technology Risk Premium"]])
+scenario_comparison = scenario.loc[(scenario["Country Name"].isin(["EMDE Mean", "Advanced Mean"]))  & (scenario["Technology"] == "Clean")]
+plot_ssp_comparison(scenario_comparison)
+plot_ssp_comparison_matplotlib(scenario_comparison)
+
