@@ -2,6 +2,8 @@ import streamlit as st
 from wacc_calculator import WaccCalculator
 import altair as alt
 import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.patches import Patch
 
 
 def plot_comparison_chart_equity(df):
@@ -67,6 +69,100 @@ def plot_ssp_comparison_matplotlib(df):
     plt.show()
 
 
+def plot_region_boxplots_by_ssp_matplotlib(df, year=2050, regions=None, technology='Clean'):
+    """Create horizontal grouped boxplots by Region showing the distribution of
+    'Overall Cost of Capital' for each SSP in a specified year.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing at minimum ['Year','Region','Scenario','Country Name','Overall Cost of Capital','Technology']
+        year (int): Year to plot (default 2050)
+        regions (list[str] | None): Ordered list of regions to include. If None, a sensible default is used.
+        technology (str | None): If provided, filter by Technology (default 'Clean')
+    """
+    # Default region order
+    if regions is None:
+        regions = [
+            'North America',
+            'Latin America and the Caribbean',
+            'Africa',
+            'Western Europe',
+            'Eastern Europe',
+            'Asia',
+            'Oceania'
+        ]
+
+    # Basic checks
+    if 'Region' not in df.columns:
+        st.warning("No 'Region' column found in DataFrame. Ensure aggregates have been merged.")
+        return
+
+    plot_df = df.copy()
+    plot_df['Country Name'] = plot_df['Country Name'].astype(str).str.strip()
+    plot_df['Region'] = plot_df['Region'].astype(str).str.strip()
+
+    # Ensure Year is numeric where possible
+    try:
+        plot_df['Year'] = plot_df['Year'].astype(int)
+    except Exception:
+        pass
+
+    # Filter
+    plot_df = plot_df[plot_df['Year'] == int(year)]
+    if technology is not None:
+        plot_df = plot_df[plot_df['Technology'] == technology]
+
+    # Exclude aggregates so boxplots show country ranges
+    plot_df = plot_df[~plot_df['Country Name'].str.contains('Mean', na=False)]
+
+    # Filter to regions and SSPs
+    plot_df = plot_df[plot_df['Region'].isin(regions)]
+    ssp_list = ['SSP1', 'SSP2', 'SSP3', 'SSP4', 'SSP5']
+    plot_df = plot_df[plot_df['Scenario'].isin(ssp_list)]
+
+    if plot_df.empty:
+        st.warning(f"No data available for year {year} with the given filters.")
+        return
+
+    n_regions = len(regions)
+    y = np.arange(n_regions)
+    n_ssp = len(ssp_list)
+    width = 0.13
+
+    colors = plt.get_cmap('Set2')(np.linspace(0, 1, n_ssp))
+
+    fig, ax = plt.subplots(figsize=(10, max(6, n_regions * 0.6)))
+
+    # Draw boxplots for each SSP with horizontal orientation and slight offsets
+    for j, ssp in enumerate(ssp_list):
+        data_j = [
+            plot_df[(plot_df['Region'] == r) & (plot_df['Scenario'] == ssp)]['Overall Cost of Capital'].dropna().values
+            for r in regions
+        ]
+        data_j = [d if len(d) > 0 else np.array([np.nan]) for d in data_j]
+        positions = y + (j - (n_ssp - 1) / 2) * width
+
+        bp = ax.boxplot(
+            data_j,
+            positions=positions,
+            widths=width * 0.9,
+            vert=False,
+            patch_artist=True,
+            manage_ticks=False
+        )
+        for patch in bp['boxes']:
+            patch.set_facecolor(colors[j])
+            patch.set_alpha(0.85)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(regions)
+    ax.set_xlabel('Overall Cost of Capital (%)')
+    ax.set_title(f'Overall Cost of Capital by Region (Year {year})')
+
+    legend_patches = [Patch(facecolor=colors[i], label=ssp_list[i]) for i in range(n_ssp)]
+    ax.legend(handles=legend_patches, title='SSP', bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    plt.tight_layout()
+    st.pyplot(fig)
 
 st.title("🎈 SSP-linked Cost of Capital Scenarios")
 st.write(
@@ -95,4 +191,10 @@ plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country R
 scenario_comparison = scenario.loc[(scenario["Country Name"].isin(["EMDE Mean", "Advanced Mean"]))  & (scenario["Technology"] == "Clean")]
 plot_ssp_comparison(scenario_comparison)
 plot_ssp_comparison_matplotlib(scenario_comparison)
+
+# Regional boxplots (easy to change year)
+years = sorted(scenario['Year'].unique())
+default_index = years.index(2050) if 2050 in years else 0
+year_choice = st.selectbox('Year (for regional boxplots)', years, index=default_index)
+plot_region_boxplots_by_ssp_matplotlib(scenario, year=year_choice, technology='Clean')
 
