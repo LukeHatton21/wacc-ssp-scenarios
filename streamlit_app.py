@@ -7,6 +7,9 @@ from matplotlib.patches import Patch
 import pandas as _pd
 from pathlib import Path as _Path
 from matplotlib.lines import Line2D
+import geopandas as gpd
+from matplotlib.colors import Normalize
+from matplotlib.cm import ScalarMappable
 
 # Consistent color mapping for SSPs across matplotlib plots
 SSP_COLOR_MAP = {
@@ -432,6 +435,126 @@ def plot_region_boxplots_by_ssp_matplotlib(df, year=2050, regions=None, technolo
     plt.tight_layout()
     st.pyplot(fig)
     fig.savefig("./PLOTS/boxplots_region_aggregates.png", bbox_inches="tight", dpi=300)
+
+
+def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', figsize=(20, 12), save_path='wacc_world_heatmap.png', show=True):
+    """Plot five subplots (one per SSP) showing world map heatmaps of Overall Cost of Capital by country.
+
+    Parameters
+    ----------
+    selected_scenario : pd.DataFrame
+        DataFrame containing columns ['Scenario','Country code','Year','Overall Cost of Capital','Technology'].
+    year_choice : int
+        Year to filter the data for.
+    technology : str
+        Technology to plot ('Clean' or 'Fossil'). Default 'Clean'.
+    figsize : tuple
+        Figure size for the output. Default (20, 12).
+    save_path : str | None
+        Path to save the figure. Default 'wacc_world_heatmap.png'.
+    show : bool
+        Whether to display the figure. Default True.
+
+    Returns
+    -------
+    (fig, axes)
+        The matplotlib figure and axes objects.
+    """
+    
+    # Load world map
+    world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+    
+    # SSP list
+    ssp_list = ['SSP1', 'SSP2', 'SSP3', 'SSP4', 'SSP5']
+    
+    # Filter data by year and technology
+    plot_df = selected_scenario[
+        (selected_scenario['Year'] == year_choice) & 
+        (selected_scenario['Technology'] == technology)
+    ].copy()
+    
+    if plot_df.empty:
+        raise ValueError(f"No data available for year {year_choice} and technology {technology}")
+    
+    # Merge country codes to ISO3 codes for mapping to geopandas
+    # Try to use 'Country code' if available, otherwise use 'iso_a3' from the data
+    if 'Country code' not in plot_df.columns and 'iso_a3' not in plot_df.columns:
+        st.warning("No 'Country code' or 'iso_a3' column found in data.")
+        return None, None
+    
+    # Use Country code as the merge key
+    code_column = 'Country code' if 'Country code' in plot_df.columns else 'iso_a3'
+    
+    # Prepare data: group by Scenario and Country code, taking the mean of Overall Cost of Capital
+    plot_df_agg = plot_df.groupby(['Scenario', code_column])['Overall Cost of Capital'].mean().reset_index()
+    
+    # Create figure with 5 subplots
+    fig, axes = plt.subplots(2, 3, figsize=figsize)
+    axes = axes.flatten()  # Flatten to make indexing easier
+    
+    # Calculate min and max for consistent colorbar across all subplots
+    vmin = plot_df_agg['Overall Cost of Capital'].min()
+    vmax = plot_df_agg['Overall Cost of Capital'].max()
+    cmap = plt.cm.RdYlGn_r  # Red=high, Yellow=medium, Green=low
+    norm = Normalize(vmin=vmin, vmax=vmax)
+    
+    # Plot each SSP
+    for idx, ssp in enumerate(ssp_list):
+        ax = axes[idx]
+        
+        # Filter data for this SSP
+        ssp_data = plot_df_agg[plot_df_agg['Scenario'] == ssp].copy()
+        
+        # Merge with world map
+        world_plot = world.merge(
+            ssp_data,
+            left_on='iso_a3',
+            right_on=code_column,
+            how='left'
+        )
+        
+        # Plot base map (light gray for countries without data)
+        world.plot(ax=ax, color='#f0f0f0', edgecolor='#cccccc', linewidth=0.5)
+        
+        # Plot data
+        world_plot_with_data = world_plot[world_plot['Overall Cost of Capital'].notna()]
+        world_plot_with_data.plot(
+            ax=ax,
+            column='Overall Cost of Capital',
+            cmap=cmap,
+            norm=norm,
+            edgecolor='#333333',
+            linewidth=0.3,
+            legend=False
+        )
+        
+        ax.set_title(f'{ssp} - {technology} ({year_choice})', fontsize=12, fontweight='bold')
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+        ax.set_xticks([])
+        ax.set_yticks([])
+    
+    # Remove the 6th subplot (we only need 5 for SSPs)
+    fig.delaxes(axes[5])
+    
+    # Add a colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    sm = ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, cax=cbar_ax)
+    cbar.set_label('Overall Cost of Capital (%)', rotation=270, labelpad=20, fontsize=10)
+    
+    fig.suptitle(f'World Map Heatmap: Cost of Capital by SSP ({technology}, {year_choice})', 
+                 fontsize=14, fontweight='bold', y=0.98)
+    plt.tight_layout(rect=[0, 0, 0.9, 0.96])
+    
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight', dpi=300)
+    if show:
+        plt.show()
+    
+    return fig, axes
+
 
 st.title("🎈 SSP-linked Cost of Capital Scenarios")
 st.write(
