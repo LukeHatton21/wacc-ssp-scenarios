@@ -281,7 +281,6 @@ class WaccCalculator:
         median_results_aggs = copied_data[["emde_advanced", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology"]].groupby(['Scenario', 'Year', "Technology", 'emde_advanced']).mean().reset_index()
         median_results_aggs["Country Name"] = median_results_aggs["emde_advanced"]
         aggregated_data = pd.concat([data, median_results_region, median_results_income, median_results_aggs], ignore_index=True)
-        st.write(aggregated_data)
 
         return aggregated_data
 

@@ -446,38 +446,56 @@ fig, ax = plot_dgs10_line(save_path='dgs10_plot.png', show=False)
 scenario = wacc_calculator.calculate_wacc_scenarios()
 low_scenario = wacc_calculator.calculate_wacc_scenarios(sensitivity="Low")
 high_scenario = wacc_calculator.calculate_wacc_scenarios(sensitivity="High")
-st.write(high_scenario)
-st.write(low_scenario)
+missing_values =  set(wacc_calculator.CRP['Country code'].unique().tolist()) ^ set(scenario['Country code'].unique().tolist())
+name_value_dict = dict(zip(wacc_calculator.country_coding['Country code'], wacc_calculator.country_coding['Country Name']))
+missing_names = [name_value_dict.get(code, code) for code in missing_values]
 
-
-tab1, tab2, tab3 = st.tabs(["Country-level scenarios", "Regional Comparisons", "Aggregate Trends"])
-with tab1:
-    SSP = st.selectbox(
+SSP = st.selectbox(
             "SSP", ("SSP1", "SSP2", "SSP3", "SSP4", "SSP5"), 
             index=0, key="SSP", placeholder="Select SSP...")
-    country = st.selectbox(
+country = st.selectbox(
             "Displayed Country", scenario["Country Name"].unique(), 
-            index=25, placeholder="Select Country...", key="Country")
+            index=0, placeholder="Select Country...", key="Country")
+sensitivity = st.selectbox(
+            "Scenario", ["Low", "Central", "High"], 
+            index=0, placeholder="Select Low/Central/High Estimates...", key="Sensitivity")
+tab1, tab11, tab2, tab3, tab4 = st.tabs(["Country-level CoE", "Country-level CoD","Regional Comparisons", "EMDEs", "Advanced Economies"])
+if sensitivity == "Low":
+    selected_scenario = low_scenario
+elif sensitivity == "High":
+    selected_scenario = high_scenario
+else:
+    selected_scenario = scenario
 
+with tab1:
     # Select data based on input
-    selected_data = scenario.loc[(scenario["Scenario"] == SSP) & (scenario["Country Name"] == country)  & (scenario["Technology"] == "Clean")]
+    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == "Clean")]
     plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium"]])
-
+with tab11:
+    # Select data based on input
+    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == "Clean")]
+    plot_comparison_chart_debt(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Technology Risk Premium"]])
 
 with tab2:
     # Regional boxplots (easy to change year)
-    years = sorted(scenario['Year'].unique())
+    years = sorted(selected_scenario['Year'].unique())
     default_index = years.index(2050) if 2050 in years else 0
     year_choice = st.selectbox('Year (for regional boxplots)', years, index=default_index)
-    plot_region_boxplots_by_ssp_matplotlib(scenario, year=year_choice, technology='Clean')
+    plot_region_boxplots_by_ssp_matplotlib(selected_scenario, year=year_choice, technology='Clean')
 
 with tab3:
     # Comparison across EMDEs and Advanced Economies for both technologies
-    scenario_comparison = scenario.loc[scenario["Country Name"].isin(["EMDEs", "Advanced Economies"])]
-    plot_ssp_comparison(scenario_comparison[scenario_comparison["Technology"] == "Clean"])
+    scenario_comparison = selected_scenario.loc[selected_scenario["Country Name"].isin(["EMDEs", "Advanced Economies"])]
+    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == "Clean")*(scenario_comparison["Country Name"] == "EMDEs")])
     # Pass full scenario_comparison (both Clean and Fossil) to create side-by-side subplots
-    plot_ssp_comparison_matplotlib(scenario_comparison)
-    plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, technology='Clean')
+    #plot_ssp_comparison_matplotlib(scenario_comparison)
+    #plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, technology='Clean')
+
+with tab4:
+    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == "Clean")*(scenario_comparison["Country Name"] == "Advanced Economies")])
+
+
+
 
 
 
