@@ -437,7 +437,7 @@ def plot_region_boxplots_by_ssp_matplotlib(df, year=2050, regions=None, technolo
     fig.savefig("./PLOTS/boxplots_region_aggregates.png", bbox_inches="tight", dpi=300)
 
 
-def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', figsize=(20, 12), save_path='wacc_world_heatmap.png', show=True):
+def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', figsize=(20, 12), save_path='wacc_world_heatmap.png', show=True, vmin=None, vmax=None):
     """Plot five subplots (one per SSP) showing world map heatmaps of Overall Cost of Capital by country.
 
     Parameters
@@ -454,6 +454,10 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', 
         Path to save the figure. Default 'wacc_world_heatmap.png'.
     show : bool
         Whether to display the figure. Default True.
+    vmin : float | None
+        Minimum value for colorbar. If None, uses minimum from data. Default None.
+    vmax : float | None
+        Maximum value for colorbar. If None, uses maximum from data. Default None.
 
     Returns
     -------
@@ -461,8 +465,9 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', 
         The matplotlib figure and axes objects.
     """
     
-    # Load world map
-    world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
+    # Load world map from Natural Earth data (via URL)
+    url = "https://naciscdn.org/naturalearth/110m/cultural/ne_110m_admin_0_countries.zip"
+    world = gpd.read_file(url)
     
     # SSP list
     ssp_list = ['SSP1', 'SSP2', 'SSP3', 'SSP4', 'SSP5']
@@ -478,23 +483,24 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', 
     
     # Merge country codes to ISO3 codes for mapping to geopandas
     # Try to use 'Country code' if available, otherwise use 'iso_a3' from the data
-    if 'Country code' not in plot_df.columns and 'iso_a3' not in plot_df.columns:
-        st.warning("No 'Country code' or 'iso_a3' column found in data.")
+    if 'Country code' not in plot_df.columns:
+        st.warning("No 'Country code' column found in data.")
         return None, None
     
     # Use Country code as the merge key
-    code_column = 'Country code' if 'Country code' in plot_df.columns else 'iso_a3'
+    code_column = 'Country code'
     
     # Prepare data: group by Scenario and Country code, taking the mean of Overall Cost of Capital
     plot_df_agg = plot_df.groupby(['Scenario', code_column])['Overall Cost of Capital'].mean().reset_index()
     
-    # Create figure with 5 subplots
-    fig, axes = plt.subplots(2, 3, figsize=figsize)
-    axes = axes.flatten()  # Flatten to make indexing easier
+    # Create figure with 5 subplots in a single column
+    fig, axes = plt.subplots(5, 1, figsize=figsize)
     
     # Calculate min and max for consistent colorbar across all subplots
-    vmin = plot_df_agg['Overall Cost of Capital'].min()
-    vmax = plot_df_agg['Overall Cost of Capital'].max()
+    if vmin is None:
+        vmin = plot_df_agg['Overall Cost of Capital'].min()
+    if vmax is None:
+        vmax = plot_df_agg['Overall Cost of Capital'].max()
     cmap = plt.cm.RdYlGn_r  # Red=high, Yellow=medium, Green=low
     norm = Normalize(vmin=vmin, vmax=vmax)
     
@@ -508,7 +514,7 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', 
         # Merge with world map
         world_plot = world.merge(
             ssp_data,
-            left_on='iso_a3',
+            left_on='ISO_A3',
             right_on=code_column,
             how='left'
         )
@@ -533,25 +539,30 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', 
         ax.set_ylabel('')
         ax.set_xticks([])
         ax.set_yticks([])
+        ax.set_ylim([-65, 90])
+        ax.set_xlim([-180, 180])
     
-    # Remove the 6th subplot (we only need 5 for SSPs)
-    fig.delaxes(axes[5])
+    fig.suptitle(f'World Map Heatmap: ({technology}, {year_choice})', 
+                 fontsize=14, fontweight='bold', y=0.99)
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
     
-    # Add a colorbar
-    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    # Add a single horizontal colorbar at the top, matching subplot width and position
+    # Do this after tight_layout so axis positions are finalized
+    first_ax = axes[0]
+    ax_pos = first_ax.get_position()
+    
+    # Create colorbar with same width and x position as the subplot
+    cbar_ax = fig.add_axes([ax_pos.x0, 0.94, ax_pos.width, 0.015])
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    cbar = fig.colorbar(sm, cax=cbar_ax)
-    cbar.set_label('Overall Cost of Capital (%)', rotation=270, labelpad=20, fontsize=10)
-    
-    fig.suptitle(f'World Map Heatmap: Cost of Capital by SSP ({technology}, {year_choice})', 
-                 fontsize=14, fontweight='bold', y=0.98)
-    plt.tight_layout(rect=[0, 0, 0.9, 0.96])
+    cbar = fig.colorbar(sm, cax=cbar_ax, orientation='horizontal', extend='max')
+    cbar.set_label('Overall Cost of Capital (%)', fontsize=10)
     
     if save_path:
-        fig.savefig(save_path, bbox_inches='tight', dpi=300)
+        fig.savefig(save_path + str(year_choice) + '.png', bbox_inches='tight', dpi=300)
     if show:
         plt.show()
+        st.pyplot(fig)
     
     return fig, axes
 
@@ -582,7 +593,7 @@ country = st.selectbox(
 sensitivity = st.selectbox(
             "Scenario", ["Low", "Central", "High"], 
             index=0, placeholder="Select Low/Central/High Estimates...", key="Sensitivity")
-tab1, tab11, tab2, tab3, tab4 = st.tabs(["Country-level CoE", "Country-level CoD","Regional Comparisons", "EMDEs", "Advanced Economies"])
+tab1, tab11, tab2, tab3, tab4, tab5 = st.tabs(["Country-level CoE", "Country-level CoD","Regional Comparisons", "EMDEs", "Advanced Economies", "World Map"])
 if sensitivity == "Low":
     selected_scenario = low_scenario
 elif sensitivity == "High":
@@ -617,7 +628,9 @@ with tab3:
 with tab4:
     plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == "Clean")*(scenario_comparison["Country Name"] == "Advanced Economies")])
 
-
+with tab5:
+    year_choice_map = st.selectbox('Year (for regional boxplots)', years, index=default_index, key='world_map_year')
+    plot_wacc_world_heatmap(selected_scenario, year_choice_map, technology='Clean', figsize=(20, 12), save_path='./PLOTS/wacc_world_heatmap', show=True, vmin=0, vmax=20)
 
 
 
