@@ -584,12 +584,7 @@ missing_values =  set(wacc_calculator.CRP['Country code'].unique().tolist()) ^ s
 name_value_dict = dict(zip(wacc_calculator.country_coding['Country code'], wacc_calculator.country_coding['Country Name']))
 missing_names = [name_value_dict.get(code, code) for code in missing_values]
 
-SSP = st.selectbox(
-            "SSP", ("SSP1", "SSP2", "SSP3", "SSP4", "SSP5"), 
-            index=0, key="SSP", placeholder="Select SSP...")
-country = st.selectbox(
-            "Displayed Country", scenario["Country Name"].unique(), 
-            index=0, placeholder="Select Country...", key="Country")
+
 technology = st.selectbox(
             "Technology", scenario["Technology"].unique(), 
             index=0, placeholder="Select Technology...", key="Technology")
@@ -605,10 +600,17 @@ else:
     selected_scenario = scenario
 
 with tab1:
+    SSP = st.selectbox(
+            "SSP", ("SSP1", "SSP2", "SSP3", "SSP4", "SSP5"), 
+            index=0, key="SSP", placeholder="Select SSP...")
+    country = st.selectbox(
+            "Displayed Country", scenario["Country Name"].unique(), 
+            index=0, placeholder="Select Country...", key="Country")
     # Select data based on input
     selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology)]
     plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium"]])
 with tab11:
+    st.write("Select inputs under CoD tab, but the same selections will apply to both charts.")
     # Select data based on input
     selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology)]
     plot_comparison_chart_debt(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Technology Risk Premium"]])
@@ -632,7 +634,7 @@ with tab4:
     plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "Advanced Economies")])
 
 with tab5:
-    year_choice_map = st.selectbox('Year (for regional boxplots)', years, index=default_index, key='world_map_year')
+    year_choice_map = st.selectbox('Year (for  global heatmaps)', years, index=default_index, key='world_map_year')
     plot_wacc_world_heatmap(selected_scenario, year_choice_map, technology=technology, figsize=(20, 12), save_path='./PLOTS/wacc_world_heatmap', show=True, vmin=0, vmax=20)
 
 
