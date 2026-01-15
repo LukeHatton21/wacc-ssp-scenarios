@@ -8,3 +8,5 @@ numpy
 scikit-learn
 statsmodels
 plotly
+geopandas
+pathlib
