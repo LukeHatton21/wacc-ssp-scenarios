@@ -10,3 +10,4 @@ statsmodels
 plotly
 geopandas
 pathlib
+openpyxl
