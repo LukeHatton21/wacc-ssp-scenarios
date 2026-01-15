@@ -559,7 +559,7 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Clean', 
     cbar.set_label('Overall Cost of Capital (%)', fontsize=10)
     
     if save_path:
-        fig.savefig(save_path + str(year_choice) + '.png', bbox_inches='tight', dpi=300)
+        fig.savefig(save_path + str(year_choice) + '-' + str(technology)+ '.png', bbox_inches='tight', dpi=300)
     if show:
         plt.show()
         st.pyplot(fig)
@@ -590,8 +590,11 @@ SSP = st.selectbox(
 country = st.selectbox(
             "Displayed Country", scenario["Country Name"].unique(), 
             index=0, placeholder="Select Country...", key="Country")
+technology = st.selectbox(
+            "Technology", scenario["Technology"].unique(), 
+            index=0, placeholder="Select Technology...", key="Technology")
 sensitivity = st.selectbox(
-            "Scenario", ["Low", "Central", "High"], 
+            "Sensitivity Scenario", ["Low", "Central", "High"], 
             index=0, placeholder="Select Low/Central/High Estimates...", key="Sensitivity")
 tab1, tab11, tab2, tab3, tab4, tab5 = st.tabs(["Country-level CoE", "Country-level CoD","Regional Comparisons", "EMDEs", "Advanced Economies", "World Map"])
 if sensitivity == "Low":
@@ -603,11 +606,11 @@ else:
 
 with tab1:
     # Select data based on input
-    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == "Clean")]
+    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology)]
     plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium"]])
 with tab11:
     # Select data based on input
-    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == "Clean")]
+    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology)]
     plot_comparison_chart_debt(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Technology Risk Premium"]])
 
 with tab2:
@@ -615,22 +618,22 @@ with tab2:
     years = sorted(selected_scenario['Year'].unique())
     default_index = years.index(2050) if 2050 in years else 0
     year_choice = st.selectbox('Year (for regional boxplots)', years, index=default_index)
-    plot_region_boxplots_by_ssp_matplotlib(selected_scenario, year=year_choice, technology='Clean')
+    plot_region_boxplots_by_ssp_matplotlib(selected_scenario, year=year_choice, technology=technology)
 
 with tab3:
     # Comparison across EMDEs and Advanced Economies for both technologies
     scenario_comparison = selected_scenario.loc[selected_scenario["Country Name"].isin(["EMDEs", "Advanced Economies"])]
-    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == "Clean")*(scenario_comparison["Country Name"] == "EMDEs")])
+    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "EMDEs")])
     # Pass full scenario_comparison (both Clean and Fossil) to create side-by-side subplots
     #plot_ssp_comparison_matplotlib(scenario_comparison)
     #plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, technology='Clean')
 
 with tab4:
-    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == "Clean")*(scenario_comparison["Country Name"] == "Advanced Economies")])
+    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "Advanced Economies")])
 
 with tab5:
     year_choice_map = st.selectbox('Year (for regional boxplots)', years, index=default_index, key='world_map_year')
-    plot_wacc_world_heatmap(selected_scenario, year_choice_map, technology='Clean', figsize=(20, 12), save_path='./PLOTS/wacc_world_heatmap', show=True, vmin=0, vmax=20)
+    plot_wacc_world_heatmap(selected_scenario, year_choice_map, technology=technology, figsize=(20, 12), save_path='./PLOTS/wacc_world_heatmap', show=True, vmin=0, vmax=20)
 
 
 
