@@ -32,6 +32,15 @@ class WaccCalculator:
         self.country_risk_gdp = self.evaluate_crp_gdp_v2()
         self.cds_gdp = self.evaluate_cds_gdp_v2()
 
+        # Set technology maturity premiums
+        self.technology_maturity = {
+            "Mature": 0,
+            "Commercial": 1.2,
+            "Pre-Commercial": 2.4, 
+            "Emerging": 3.6, 
+            "FOAK": 4.8
+        }
+
 
     def convert_gdp_terms(self):
 
@@ -256,7 +265,10 @@ class WaccCalculator:
         # 4. Calculate technology category premium
         calculated_data = self.evaluate_tech_risk(data=calculated_data, sensitivity=sensitivity)
 
-        # 5. Sum all to give the total
+        # 5. Calculate policy coherence premium
+        calculated_data = self.evaluate_policy_coherence(data=calculated_data, sensitivity=sensitivity)
+
+        # 6. Sum all to give the total
         calculated_data = self.evaluate_total_costs(data=calculated_data, sensitivity=sensitivity)
 
         # 6. Merge additional data and calculate medians
@@ -325,37 +337,44 @@ class WaccCalculator:
 
     def evaluate_tech_risk(self, data, sensitivity=None):
 
-        # Duplicate dataframe and add clean vs fossil category
-        original_data = data
-        duplicated_data = data.copy()
+        # List to collect per-technology dataframes
+        df_list = []
 
-        # Add technology category and concatenate
-        original_data["Technology"] = "Clean"
-        duplicated_data["Technology"] = "Fossil"
-        new_data = pd.concat([original_data, duplicated_data], ignore_index=True)
+        for tech, premium in self.technology_maturity.items():
+            # Duplicate the original data for this technology
+            tech_df = data.copy()
 
-        # For clean category, apply SSP-specific relationships
-        medium_ssp = ["SSP2", "SSP3", "SSP4"]
-        new_data.loc[(new_data["Scenario"] == "SSP1")*(new_data["Technology"] == "Clean"), 
-                     "Technology Risk Premium"] = self.category_margin * ( 1 - (new_data["Year"].astype(int) - 2025)/ (2050 - 2025))
-        new_data.loc[(new_data["Scenario"].isin(medium_ssp))*(new_data["Technology"] == "Clean"), 
-                     "Technology Risk Premium"] = self.category_margin * ( 1 - (new_data["Year"].astype(int) - 2025)/ 2 / (2050 - 2025))
-        new_data.loc[(new_data["Scenario"] == "SSP5")*(new_data["Technology"] == "Clean"), 
-                     "Technology Risk Premium"] = self.category_margin 
-        
+            # Set the Technology column
+            tech_df["Technology"] = tech
 
-        # For fossil category, apply SSP-specific relationships
-        new_data.loc[(new_data["Scenario"] == "SSP1")*(new_data["Technology"] == "Fossil"), 
-                     "Technology Risk Premium"] = self.category_margin * (new_data["Year"].astype(int) - 2025)/ (2050 - 2025)
-        new_data.loc[(new_data["Scenario"].isin(medium_ssp))*(new_data["Technology"] == "Fossil"), 
-                     "Technology Risk Premium"] = self.category_margin * (new_data["Year"].astype(int) - 2025)/ 2 / (2050 - 2025)
-        new_data.loc[(new_data["Scenario"] == "SSP5")*(new_data["Technology"] == "Fossil"), 
-                     "Technology Risk Premium"] = 0
-        
-        # Apply a limit
-        new_data["Technology Risk Premium"] = new_data["Technology Risk Premium"].clip(upper=3.0, lower=0)
+            # Set the Technology Risk Premium for all rows/years
+            tech_df["Technology Risk Premium"] = premium
+
+            df_list.append(tech_df)
+
+        # Concatenate all technology-specific dataframes
+        new_data = pd.concat(df_list, ignore_index=True)
 
         return new_data
+    
+    def evaluate_policy_coherence(self, data, sensitivity=None):
+
+        # Copy data
+        policy_incoherence = data.copy()
+
+        # Set policy incoherence premium
+        policy_incoherence["Policy Coherence Premium"] = 2
+        data["Policy Coherence Premium"] = 0
+
+        # Set tracker
+        policy_incoherence["Policy Coherence"] = "Weak"
+        data["Policy Coherence"] = "Strong"
+
+        # Append data
+        merged_data = pd.concat([data, policy_incoherence], ignore_index=True)
+
+        return merged_data
+
 
 
     def evaluate_total_costs(self, data, sensitivity=None):
@@ -373,10 +392,10 @@ class WaccCalculator:
                                                                                data["Country Risk Premium"].min())
 
         # Calculate the cost of debt
-        data["Cost of Debt"] = data["Risk Free Rate"] + data["Country Default Spread"] + data["Lenders Margin"] + data["Technology Risk Premium"]
+        data["Cost of Debt"] = data["Risk Free Rate"] + data["Country Default Spread"] + data["Lenders Margin"] + data["Technology Risk Premium"] + data["Policy Coherence Premium"]
 
         # Calculate the cost of equity
-        data["Cost of Equity"] = data["Risk Free Rate"] + data["Country Risk Premium"] + data["Equity Risk Premium"] + data["Technology Risk Premium"]
+        data["Cost of Equity"] = data["Risk Free Rate"] + data["Country Risk Premium"] + data["Equity Risk Premium"] + data["Technology Risk Premium"] + 1.5 * data["Policy Coherence Premium"]
 
         # Calculate the overall cost of capital
         data["Overall Cost of Capital"] = data["Debt Share"] / 100 * data["Cost of Debt"] * (1 - data["Tax Rate"]/100) + data["Cost of Equity"] * (1 - data["Debt Share"]/100)

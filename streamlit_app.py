@@ -586,8 +586,11 @@ missing_names = [name_value_dict.get(code, code) for code in missing_values]
 
 
 technology = st.selectbox(
-            "Technology", scenario["Technology"].unique(), 
+            "Technology Maturity", scenario["Technology"].unique(), 
             index=0, placeholder="Select Technology...", key="Technology")
+policy = st.selectbox(
+            "Policy Coherence", scenario["Policy Coherence"].unique(), 
+            index=0, placeholder="Select Policy Coherence...", key="Policy Coherence")
 sensitivity = st.selectbox(
             "Sensitivity Scenario", ["Low", "Central", "High"], 
             index=0, placeholder="Select Low/Central/High Estimates...", key="Sensitivity")
@@ -607,13 +610,13 @@ with tab1:
             "Displayed Country", scenario["Country Name"].unique(), 
             index=0, placeholder="Select Country...", key="Country")
     # Select data based on input
-    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology)]
-    plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium"]])
+    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology) & (selected_scenario["Policy Coherence"] == policy)]
+    plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium", "Policy Coherence Premium"]])
 with tab11:
     st.write("Select inputs under CoD tab, but the same selections will apply to both charts.")
     # Select data based on input
-    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology)]
-    plot_comparison_chart_debt(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Technology Risk Premium"]])
+    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology) & (selected_scenario["Policy Coherence"] == policy)]
+    plot_comparison_chart_debt(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Technology Risk Premium", "Policy Coherence Premium"]])
 
 with tab2:
     # Regional boxplots (easy to change year)
@@ -625,13 +628,13 @@ with tab2:
 with tab3:
     # Comparison across EMDEs and Advanced Economies for both technologies
     scenario_comparison = selected_scenario.loc[selected_scenario["Country Name"].isin(["EMDEs", "Advanced Economies"])]
-    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "EMDEs")])
+    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Policy Coherence"] == policy)*(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "EMDEs")])
     # Pass full scenario_comparison (both Clean and Fossil) to create side-by-side subplots
     #plot_ssp_comparison_matplotlib(scenario_comparison)
     #plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, technology='Clean')
 
 with tab4:
-    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "Advanced Economies")])
+    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Policy Coherence"] == policy)*(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "Advanced Economies")])
 
 with tab5:
     year_choice_map = st.selectbox('Year (for  global heatmaps)', years, index=default_index, key='world_map_year')
