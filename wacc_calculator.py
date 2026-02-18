@@ -470,7 +470,9 @@ class WaccCalculator:
         data["Cost of Debt"] = data["Risk Free Rate"] + data["Country Default Spread"] + data["Lenders Margin"] + data["Technology Risk Premium"] + data["Policy Coherence Premium"]
 
         # Calculate the cost of equity
-        data["Cost of Equity"] = data["Risk Free Rate"] + data["Country Risk Premium"] + data["Equity Risk Premium"] + data["Technology Risk Premium"] + 1.5 * data["Policy Coherence Premium"]
+        mature_equity_tech_risk = 1.5
+        data["Technology Risk Premium (E)"] = data["Technology Risk Premium"] + mature_equity_tech_risk
+        data["Cost of Equity"] = data["Risk Free Rate"] + data["Country Risk Premium"] + data["Equity Risk Premium"] + data["Technology Risk Premium (E)"] + data["Policy Coherence Premium"]
 
         # Calculate the overall cost of capital
         data["Overall Cost of Capital"] = data["Debt Share"] / 100 * data["Cost of Debt"] * (1 - data["Tax Rate"]/100) + data["Cost of Equity"] * (1 - data["Debt Share"]/100)
@@ -497,11 +499,11 @@ class WaccCalculator:
         gdp_2025 = gdp_results[(gdp_results["Year"]==2025) & (gdp_results["Scenario"]=="SSP1")].rename(columns={"GDP per capita":"GDP per capita 2025"})[["Country code", "GDP per capita 2025"]]
         collated_results = collated_results.merge(gdp_2025, how="left", on="Country code")
 
-        # Extract 2024 values for CRP and CDS and merge on
-        crp_2024 = self.CRP[["Country code", 2024]].rename(columns={2024:"Country Risk Premium"})
-        cds_2024 = self.CDS[["Country code", 2024]].rename(columns={2024:"Country Default Spread"})
-        collated_results = collated_results.merge(crp_2024, how="left", on="Country code")
-        collated_results = collated_results.merge(cds_2024, how="left", on="Country code")
+        # Extract 2025 values for CRP and CDS and merge on
+        crp_2025 = self.CRP[["Country code", 2025]].rename(columns={2025:"Country Risk Premium"})
+        cds_2025 = self.CDS[["Country code", 2025]].rename(columns={2025:"Country Default Spread"})
+        collated_results = collated_results.merge(crp_2025, how="left", on="Country code")
+        collated_results = collated_results.merge(cds_2025, how="left", on="Country code")
 
         # 2. Convert GDP per capita to country risk premium 
         collated_results["Country Risk Premium"] = collated_results["Country Risk Premium"] + self.country_risk_gdp * np.log(collated_results["GDP " \

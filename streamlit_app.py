@@ -10,6 +10,7 @@ from matplotlib.lines import Line2D
 import geopandas as gpd
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
+import matplotlib.dates as mdates
 
 # Consistent color mapping for SSPs across matplotlib plots
 SSP_COLOR_MAP = {
@@ -313,14 +314,17 @@ def plot_dgs10_line(filepath=None, start_date=None, end_date=None, rolling=None,
 
     ax.plot(x, y, label="10 year U.S. Treasury Yield", color="C0", linewidth=1)
     if rolling and isinstance(rolling, int) and rolling > 1:
-        ax.plot(x, y.rolling(window=rolling).mean(), label=f"{rolling}-day MA", color="C1", linewidth=1.25)
+        ax.plot(x, y.rolling(window=rolling).mean(), label=f"{rolling}-day MA", color="green", linewidth=2)
 
     ax.set_xlabel("Date")
     ax.set_ylabel("10-Year Treasury Yield (%, nominal)")
-    ax.grid(True, linestyle="--", alpha=0.6)
-    ax.legend()
     fig.autofmt_xdate()
     plt.tight_layout()
+    plt.xticks(rotation=0)
+    # Set major ticks every 5 years
+    ax.xaxis.set_major_locator(mdates.YearLocator(5))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    ax.set_yticks([0, 2, 4, 6, 8])
 
     if save_path:
         fig.savefig(save_path, bbox_inches="tight")
@@ -374,6 +378,7 @@ def plot_region_boxplots_by_ssp_matplotlib(df, policy, year=2050, regions=None, 
 
     # Exclude aggregates so boxplots show country ranges
     plot_df = plot_df[~plot_df['Country Name'].str.contains('Mean', na=False)]
+    plot_df = plot_df.loc[(plot_df["Technology"]==technology) & (plot_df["Policy Coherence"]==policy)]
 
     # Filter to regions and SSPs
     plot_df = plot_df[plot_df['Region'].isin(regions)]
@@ -435,7 +440,7 @@ def plot_region_boxplots_by_ssp_matplotlib(df, policy, year=2050, regions=None, 
 
     ax.set_yticks(y)
     ax.set_yticklabels(final_regions)
-    ax.set_xlabel(f'Overall Cost of Capital (%, {year}, {technology}, {policy})')
+    ax.set_xlabel(f'Overall Cost of Capital (%, {year}, {technology}, {policy} policy coherence)')
 
     legend_patches = [Patch(facecolor=colors[i], label=ssp_list[i]) for i in range(n_ssp)]
     ax.legend(handles=legend_patches, title='Scenario', bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -526,7 +531,7 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature',
         # Merge with world map
         world_plot = world.merge(
             ssp_data,
-            left_on='ISO_A3',
+            left_on='ADM0_A3',
             right_on=code_column,
             how='left'
         )
@@ -536,6 +541,7 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature',
         
         # Plot data
         world_plot_with_data = world_plot[world_plot['Overall Cost of Capital'].notna()]
+        world_no_data = world_plot[world_plot['Overall Cost of Capital'].isna()]
         world_plot_with_data.plot(
             ax=ax,
             column='Overall Cost of Capital',
@@ -544,6 +550,14 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature',
             edgecolor='#333333',
             linewidth=0.3,
             legend=False
+        )
+
+        world_no_data.plot(
+        ax=ax,
+        color='#f0f0f0',      # grey them out
+        edgecolor='#cccccc',
+        linewidth=0.3,
+        hatch='////' 
         )
         
         ax.set_title(f'{ssp} - {technology}, {policy} Policy ({year_choice})', fontsize=12, fontweight='bold')
@@ -623,7 +637,7 @@ with tab1:
             index=0, placeholder="Select Country...", key="Country")
     # Select data based on input
     selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology) & (selected_scenario["Policy Coherence"] == policy)]
-    plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium", "Policy Coherence Premium"]])
+    plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium (E)", "Policy Coherence Premium"]])
 with tab11:
     st.write("Select inputs under CoD tab, but the same selections will apply to both charts.")
     # Select data based on input
@@ -652,6 +666,7 @@ with tab5:
     year_choice_map = st.selectbox('Year (for  global heatmaps)', years, index=default_index, key='world_map_year')
     selected_scenario.to_csv("selected_scenario.csv", index=False)
     plot_wacc_world_heatmap(selected_scenario, year_choice_map, technology=technology, figsize=(20, 12), save_path='./PLOTS/wacc_world_heatmap', show=True, vmin=0, vmax=20, policy=policy)
+
 
 
 
