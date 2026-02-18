@@ -4,6 +4,8 @@ import numpy as np
 import streamlit as st
 from sklearn.linear_model import LinearRegression
 from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
+import matplotlib.ticker as tkr
 
 class WaccCalculator:
 
@@ -87,6 +89,75 @@ class WaccCalculator:
 
         return X_0, exponent
 
+    def plot_regression(self, model, log_gdp, inflation, deficit, debt, y_values, figname=None):
+
+        log_gdp_grid = np.linspace(log_gdp.min(), log_gdp.max(), 100)
+
+        infl_mean = inflation.mean()
+        deficit_mean = deficit.mean()
+        debt_mean = debt.mean()
+
+        X_grid = np.column_stack([
+        log_gdp_grid,
+        np.full_like(log_gdp_grid, infl_mean),
+        np.full_like(log_gdp_grid, deficit_mean),
+        np.full_like(log_gdp_grid, debt_mean)
+    ])
+
+
+        # Predict and prepare x
+        crp_pred_unclipped = model.predict(X_grid).ravel()
+        x = np.exp(log_gdp_grid).ravel()
+
+        # Sort by x (important for a clean line)
+        order = np.argsort(x)
+        x = x[order]
+        y = crp_pred_unclipped[order]
+
+        plt.figure(figsize=(8, 6))
+        plt.scatter(np.exp(log_gdp), y_values, alpha=0.6, label="Yearly data")
+
+        # Find first crossing where y <= 0
+        cross_idxs = np.where(y <= 0)[0]
+
+        if len(cross_idxs) == 0:
+            # No crossing: plot full unclipped line
+            plt.plot(x, y, color="red", linewidth=2, label="Unclipped regression")
+        elif cross_idxs[0] == 0:
+            # Starts at or below 0: plot fully clipped line
+            plt.plot(x, np.zeros_like(x), color="black", linewidth=2, linestyle="--",
+                    label="Clipped at 0")
+        else:
+            i = cross_idxs[0]  # first index where y <= 0
+            x1, y1 = x[i-1], y[i-1]   # last positive point
+            x2, y2 = x[i], y[i]       # first non-positive point
+
+            # Linear interpolation for exact crossing x
+            x_cross = x1 + (x2 - x1) * (0 - y1) / (y2 - y1)
+
+            # Segment 1: unclipped until crossing (ends at y=0 for continuity)
+            x_seg1 = np.concatenate([x[:i], [x_cross]])
+            y_seg1 = np.concatenate([y[:i], [0.0]])
+            plt.plot(x_seg1, y_seg1, color="red", linewidth=2, label="Fitted line from \nregression model")
+
+            # Segment 2: clipped flat line at 0 from crossing onward
+            x_seg2 = np.concatenate([[x_cross], x[i:]])
+            y_seg2 = np.zeros_like(x_seg2)
+            plt.plot(x_seg2, y_seg2, color="red", linewidth=2, linestyle="--",
+                    label="Limit of modelled\nGDP - CRP relationship")
+
+        #plt.figure(figsize=(8, 6))
+        #plt.scatter(np.exp(log_gdp), y_values, alpha=0.6, label="Yearly data")
+        plt.xlabel("GDP per capita (constant 2017 US$)")
+        ax = plt.gca()
+        ax.xaxis.set_major_formatter(tkr.StrMethodFormatter('{x:,.0f}'))
+        plt.xticks([0, 20000, 40000, 60000, 80000, 100000])
+        plt.yticks([0, 5, 10, 15, 20, 25])
+        plt.ylabel("Country Default Spread (%) ")
+        plt.legend()
+        plt.tight_layout()
+        if figname is not None:
+            plt.savefig(figname)
 
     def evaluate_crp_gdp_v2(self):
 
@@ -94,7 +165,7 @@ class WaccCalculator:
             return a * x**b
 
         # Selected years
-        selected_years = [str(year) for year in range(2015, 2025)]
+        selected_years = [str(year) for year in range(2000, 2025)]
         selected_years.append("Country code")
         
         # Get GDP values with years and country codes
@@ -157,7 +228,7 @@ class WaccCalculator:
             return a * x**b
 
         # Selected years
-        selected_years = [str(year) for year in range(2015, 2025)]
+        selected_years = [str(year) for year in range(2000, 2025)]
         selected_years.append("Country code")
         
         # Get GDP values with years and country codes
@@ -203,6 +274,10 @@ class WaccCalculator:
         model = LinearRegression()
         model.fit(X_values, y_values)
 
+        # Call plot function
+        self.plot_regression(model, np.log(merged_data["GDP"]), merged_data["Inflation"], merged_data["Deficit"], merged_data["Debt"], y_values, figname="cds_regression.png")
+
+        
         # Get values
         beta0 = model.intercept_
         gdp_coefficient, beta2, beta3, beta4 = model.coef_
@@ -284,13 +359,13 @@ class WaccCalculator:
         copied_data = data.copy()
 
         # Calculate median for each region and wb_income_group
-        median_results_region = copied_data[["Region", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology"]].groupby(['Scenario', 'Year', "Technology", 'Region']).mean().reset_index()
+        median_results_region = copied_data[["Region", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology", "Policy Coherence"]].groupby(['Scenario', 'Year', "Technology", 'Region', 'Policy Coherence']).mean().reset_index()
         median_results_region["Country Name"] = median_results_region["Region"] + " Mean"
 
-        median_results_income = copied_data[["wb_income_group", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology"]].groupby(['Scenario', 'Year', "Technology", 'wb_income_group']).mean().reset_index()
+        median_results_income = copied_data[["wb_income_group", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology", "Policy Coherence"]].groupby(['Scenario', 'Year', "Technology", 'Policy Coherence', 'wb_income_group']).mean().reset_index()
         median_results_income["Country Name"] = median_results_income["wb_income_group"] + " Mean"
 
-        median_results_aggs = copied_data[["emde_advanced", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology"]].groupby(['Scenario', 'Year', "Technology", 'emde_advanced']).mean().reset_index()
+        median_results_aggs = copied_data[["emde_advanced", "Scenario", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium", "Technology Risk Premium", "Overall Cost of Capital", "Year", "Technology", "Policy Coherence"]].groupby(['Scenario', 'Year', "Technology", 'Policy Coherence', 'emde_advanced']).mean().reset_index()
         median_results_aggs["Country Name"] = median_results_aggs["emde_advanced"]
         aggregated_data = pd.concat([data, median_results_region, median_results_income, median_results_aggs], ignore_index=True)
 
