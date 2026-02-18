@@ -605,7 +605,7 @@ policy = st.selectbox(
             index=0, placeholder="Select Policy Coherence...", key="Policy Coherence")
 sensitivity = st.selectbox(
             "Sensitivity Scenario", ["Low", "Central", "High"], 
-            index=0, placeholder="Select Low/Central/High Estimates...", key="Sensitivity")
+            index=1, placeholder="Select Low/Central/High Estimates...", key="Sensitivity")
 tab1, tab11, tab2, tab3, tab4, tab5 = st.tabs(["Country-level CoE", "Country-level CoD","Regional Comparisons", "EMDEs", "Advanced Economies", "World Map"])
 if sensitivity == "Low":
     selected_scenario = low_scenario
@@ -650,6 +650,7 @@ with tab4:
 
 with tab5:
     year_choice_map = st.selectbox('Year (for  global heatmaps)', years, index=default_index, key='world_map_year')
+    selected_scenario.to_csv("selected_scenario.csv", index=False)
     plot_wacc_world_heatmap(selected_scenario, year_choice_map, technology=technology, figsize=(20, 12), save_path='./PLOTS/wacc_world_heatmap', show=True, vmin=0, vmax=20, policy=policy)
 
 
