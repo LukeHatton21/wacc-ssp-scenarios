@@ -21,8 +21,9 @@ SSP_COLOR_MAP = {
     'SSP5': '#d62728',  # red
 }
 
+
 def plot_comparison_chart_equity(df):
-   # Melt dataframe
+    # Melt dataframe
     data_melted = df.melt(id_vars="Year", var_name="Factor", value_name="Value")
 
     # Set order
@@ -34,11 +35,12 @@ def plot_comparison_chart_equity(df):
         y=alt.Y('Year:O', title='Country'),  # Sort countries by total value descending
         color=alt.Color('Factor:N', title='Factor'),
         order=alt.Order('Factor:O', sort="ascending"),  # Color bars by category
-).properties(width=700)
+    ).properties(width=700)
     st.write(chart)
 
+
 def plot_comparison_chart_debt(df):
-   # Melt dataframe
+    # Melt dataframe
     data_melted = df.melt(id_vars="Year", var_name="Factor", value_name="Value")
 
     # Set order
@@ -50,24 +52,26 @@ def plot_comparison_chart_debt(df):
         y=alt.Y('Year:O', title='Country'),  # Sort countries by total value descending
         color=alt.Color('Factor:N', title='Factor'),
         order=alt.Order('Factor:O', sort="ascending"),  # Color bars by category
-).properties(width=700)
+    ).properties(width=700)
     st.write(chart)
+
 
 def plot_ssp_comparison(df):
     chart = (
         alt.Chart(df)
-        .mark_line(point=True)
-        .encode(
+            .mark_line(point=True)
+            .encode(
             x=alt.X('Year:O', title='Year'),
             y=alt.Y('Overall Cost of Capital:Q', title='Overall Cost of Capital (%)'),
             color=alt.Color('Scenario:N', title='Scenario'),
             column=alt.Column('Country Name:N', title='Country Name'),
             tooltip=['Year', 'Scenario', 'Overall Cost of Capital']
         )
-        .properties(width=700)
+            .properties(width=700)
     )
 
     st.write(chart)
+
 
 def plot_ssp_comparison_matplotlib(df, figsize=(12, 6), save_path='ssp_comparison_matplotlib.png', show=True):
     """Plot overall cost of capital by technology (Mature vs Pre-Commercial) for EMDEs and Advanced Economies.
@@ -82,7 +86,7 @@ def plot_ssp_comparison_matplotlib(df, figsize=(12, 6), save_path='ssp_compariso
     from matplotlib.lines import Line2D
 
     # Technologies and countries of interest
-    technologies = ['Mature', 'Commercial', 'Pre-Commercial', 'Emerging', 'FOAK']
+    technologies = ['FOAK', 'Early Commercial', 'Scaling', 'Commercial', 'Mature']
     countries = ['EMDEs', 'Advanced Economies']
     policy = ["Strong"]
 
@@ -100,7 +104,7 @@ def plot_ssp_comparison_matplotlib(df, figsize=(12, 6), save_path='ssp_compariso
     country_styles = {country: linestyles[i % len(linestyles)] for i, country in enumerate(countries)}
 
     # Plot each subplot for each technology
-    df = df.loc[df["Policy Coherence"].isin(policy)]
+    df = df.loc[df["Policy Maturity"].isin(policy)]
     for ax, tech in zip(axes, technologies):
         for i, scenario in enumerate(scenarios):
             color = SSP_COLOR_MAP.get(scenario, tab_colors[i % len(tab_colors)])
@@ -116,17 +120,18 @@ def plot_ssp_comparison_matplotlib(df, figsize=(12, 6), save_path='ssp_compariso
 
     # Y label on the left subplot
     axes[0].set_ylabel('Mean Cost of Capital (%, nominal)')
-    
 
     # Create shared legend (scenarios colors + country linestyles) and place it below the subplots
-    scenario_handles = [Line2D([0], [0], color=SSP_COLOR_MAP.get(scenarios[i], tab_colors[i % len(tab_colors)]), lw=2) for i in range(len(scenarios))]
+    scenario_handles = [Line2D([0], [0], color=SSP_COLOR_MAP.get(scenarios[i], tab_colors[i % len(tab_colors)]), lw=2)
+                        for i in range(len(scenarios))]
     country_handles = [Line2D([0], [0], color='k', lw=1.5, linestyle=country_styles[c]) for c in countries]
 
     handles = scenario_handles + country_handles
     labels = scenarios + countries
 
     # Place combined legend centered below plots
-    fig.legend(handles, labels, loc='lower center', ncol=max(3, len(labels)), bbox_to_anchor=(0.5, -0.05), frameon=False)
+    fig.legend(handles, labels, loc='lower center', ncol=max(3, len(labels)), bbox_to_anchor=(0.5, -0.05),
+               frameon=False)
 
     # Adjust layout to make room for legend
     fig.subplots_adjust(bottom=0.1, wspace=0.15)
@@ -139,7 +144,8 @@ def plot_ssp_comparison_matplotlib(df, figsize=(12, 6), save_path='ssp_compariso
     return fig, axes
 
 
-def plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, technology='Mature', include_both=False, figsize=(12, 10), save_path='ssp_comparison_range_matplotlib.png', show=True):
+def plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, technology='Mature', include_both=False,
+                                         figsize=(12, 10), save_path='ssp_comparison_range_matplotlib.png', show=True):
     """Plot five subplots (one per SSP) showing EMDEs and Advanced Economies means with low/high ranges.
 
     Parameters
@@ -163,7 +169,8 @@ def plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, 
     # Grid: 3 rows x 2 cols, last axis spans both columns (centered)
     fig = plt.figure(figsize=figsize)
     gs = fig.add_gridspec(3, 2)
-    axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]), fig.add_subplot(gs[2, :])]
+    axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1]),
+            fig.add_subplot(gs[2, :])]
 
     tab_colors = plt.get_cmap('tab10')(range(10))
     country_styles = {'EMDEs': '--', 'Advanced Economies': '-'}
@@ -180,9 +187,12 @@ def plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, 
         for tech in techs:
             for country in countries:
                 # Filter frames
-                central = scenario[(scenario['Scenario'] == ssp) & (scenario['Country Name'] == country) & (scenario.get('Technology') == tech)].copy()
-                low = low_scenario[(low_scenario['Scenario'] == ssp) & (low_scenario['Country Name'] == country) & (low_scenario.get('Technology') == tech)].copy()
-                high = high_scenario[(high_scenario['Scenario'] == ssp) & (high_scenario['Country Name'] == country) & (high_scenario.get('Technology') == tech)].copy()
+                central = scenario[(scenario['Scenario'] == ssp) & (scenario['Country Name'] == country) & (
+                            scenario.get('Technology') == tech)].copy()
+                low = low_scenario[(low_scenario['Scenario'] == ssp) & (low_scenario['Country Name'] == country) & (
+                            low_scenario.get('Technology') == tech)].copy()
+                high = high_scenario[(high_scenario['Scenario'] == ssp) & (high_scenario['Country Name'] == country) & (
+                            high_scenario.get('Technology') == tech)].copy()
 
                 if central.empty:
                     continue
@@ -221,16 +231,14 @@ def plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, 
                 if tech.lower() == 'Pre-Commercial':
                     marker = 'o'
                     markersize = 4
-                    ax.plot(years_arr, central_arr, color=color, lw=1.5, linestyle=country_styles[country], marker=marker, markersize=markersize, markerfacecolor=color, markeredgecolor='k')
+                    ax.plot(years_arr, central_arr, color=color, lw=1.5, linestyle=country_styles[country],
+                            marker=marker, markersize=markersize, markerfacecolor=color, markeredgecolor='k')
                 else:
                     ax.plot(years_arr, central_arr, color=color, lw=2, linestyle=country_styles[country])
 
         ax.grid(alpha=0.35, linestyle='--')
         ax.set_ylabel('Cost of Capital (%, nominal)')
         ax.set_yticks([0, 5, 10, 15])
-        
-
-    
 
     # Legend: country line styles + fossil marker + envelope patch
     country_handles = [Line2D([0], [0], color='k', lw=1.5, linestyle=country_styles[c], label=c) for c in countries]
@@ -240,7 +248,6 @@ def plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, 
     handles = country_handles + ([fossil_handle] if include_both else []) + [envelope_patch]
     labels = [h.get_label() for h in handles]
 
-    
     fig.subplots_adjust(bottom=0.25, hspace=0.5, wspace=0.25)
     axes[-1].legend(handles, labels, loc='right', ncol=1, bbox_to_anchor=(1.55, 0.5), frameon=False)
 
@@ -265,7 +272,28 @@ def plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, 
     return fig, axes
 
 
-def plot_dgs10_line(filepath=None, start_date=None, end_date=None, rolling=None, figsize=(10, 6), ax=None, show=True, save_path=None):
+def calculate_median_differences(data):
+    data = data.copy()[
+        ["Scenario", "Technology", "Policy Maturity", "Country Name", "Year", "Overall Cost of Capital"]]
+
+    selected_data = data.loc[
+        (data["Technology"] == "Mature") & (data["Year"] == 2100) & (data["Policy Maturity"] == "Strong")]
+    selected_data = selected_data.drop_duplicates(subset=["Country Name", "Scenario"])
+    pivoted_data = selected_data.pivot(index=['Technology', 'Year', 'Country Name', 'Policy Maturity'],
+                                       columns='Scenario', values="Overall Cost of Capital").reset_index()
+    pivoted_data["Difference"] = pivoted_data[["SSP1", "SSP2", "SSP3", "SSP4", "SSP5"]].max(axis=1) - pivoted_data[
+        ["SSP1", "SSP2", "SSP3", "SSP4", "SSP5"]].min(axis=1)
+    pivoted_data = pivoted_data.loc[
+        ~(pivoted_data["Country Name"].isin(["Advanced Economies", "EMDEs", "EMDEs?"]))
+        & ~pivoted_data["Country Name"].str.contains("Mean", na=False)
+        ]
+    max_diff = pivoted_data["Difference"].max()
+
+    return max_diff
+
+
+def plot_dgs10_line(filepath=None, start_date=None, end_date=None, rolling=None, figsize=(10, 6), ax=None, show=True,
+                    save_path=None):
     """Plot the US 10-year Treasury yield from the DGS10 CSV.
 
     Parameters
@@ -291,7 +319,6 @@ def plot_dgs10_line(filepath=None, start_date=None, end_date=None, rolling=None,
         The matplotlib figure and axis objects.
     """
 
-
     path = _Path(filepath) if filepath is not None else _Path(__file__).resolve().parent / "DATA" / "DGS10.csv"
     df = _pd.read_csv(path, parse_dates=["observation_date"])  # expects columns observation_date, DGS10
     df = df.sort_values("observation_date").dropna(subset=["DGS10"])  # drop missing yields
@@ -312,29 +339,31 @@ def plot_dgs10_line(filepath=None, start_date=None, end_date=None, rolling=None,
     else:
         fig = ax.figure
 
-    ax.plot(x, y, label="10 year U.S. Treasury Yield", color="C0", linewidth=1)
+    ax.plot(x, y, color="C0", linewidth=2)
     if rolling and isinstance(rolling, int) and rolling > 1:
         ax.plot(x, y.rolling(window=rolling).mean(), label=f"{rolling}-day MA", color="green", linewidth=2)
-
-    ax.set_xlabel("Date")
-    ax.set_ylabel("10-Year Treasury Yield (%, nominal)")
+    ax.set_xlabel("Date", fontsize=20)
+    ax.set_ylabel("10-Year Treasury Yield (%, nominal)", fontsize=20)
+    ax.grid(False)
     fig.autofmt_xdate()
     plt.tight_layout()
-    plt.xticks(rotation=0)
     # Set major ticks every 5 years
     ax.xaxis.set_major_locator(mdates.YearLocator(5))
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    plt.xticks(rotation=0)
     ax.set_yticks([0, 2, 4, 6, 8])
-
+    ax.tick_params(axis='x', labelsize=15)
+    ax.tick_params(axis='y', labelsize=15)
+    ax.text(0.02, 0.94, "a", transform=ax.transAxes, fontsize=20, fontweight='bold')
     if save_path:
-        fig.savefig(save_path, bbox_inches="tight")
+        fig.savefig(save_path, bbox_inches="tight", dpi=300)
     if show:
         plt.show()
 
     return fig, ax
 
 
-def plot_region_boxplots_by_ssp_matplotlib(df, policy, year=2050, regions=None, technology='Mature'):
+def plot_region_boxplots_by_ssp_matplotlib(df, policy, year=2050, regions=None, technology='Mature', show=None):
     """Create horizontal grouped boxplots by Region showing the distribution of
     'Overall Cost of Capital' for each SSP in a specified year.
 
@@ -378,7 +407,7 @@ def plot_region_boxplots_by_ssp_matplotlib(df, policy, year=2050, regions=None, 
 
     # Exclude aggregates so boxplots show country ranges
     plot_df = plot_df[~plot_df['Country Name'].str.contains('Mean', na=False)]
-    plot_df = plot_df.loc[(plot_df["Technology"]==technology) & (plot_df["Policy Coherence"]==policy)]
+    plot_df = plot_df.loc[(plot_df["Technology"] == technology) & (plot_df["Policy Maturity"] == policy)]
 
     # Filter to regions and SSPs
     plot_df = plot_df[plot_df['Region'].isin(regions)]
@@ -412,14 +441,15 @@ def plot_region_boxplots_by_ssp_matplotlib(df, policy, year=2050, regions=None, 
     width = 0.13
 
     # Use consistent SSP colors (SSP1 green, SSP5 red, others distinct)
-    colors = [SSP_COLOR_MAP.get(ssp, plt.get_cmap('Set2')(i / max(1, n_ssp-1))) for i, ssp in enumerate(ssp_list)]
+    colors = [SSP_COLOR_MAP.get(ssp, plt.get_cmap('Set2')(i / max(1, n_ssp - 1))) for i, ssp in enumerate(ssp_list)]
 
     fig, ax = plt.subplots(figsize=(10, max(6, n_regions * 0.6)))
 
     # Draw boxplots for each SSP with horizontal orientation and slight offsets
     for j, ssp in enumerate(ssp_list):
         data_j = [
-            combined_df[(combined_df['Region'] == r) & (combined_df['Scenario'] == ssp)]['Overall Cost of Capital'].dropna().values
+            combined_df[(combined_df['Region'] == r) & (combined_df['Scenario'] == ssp)][
+                'Overall Cost of Capital'].dropna().values
             for r in final_regions
         ]
         data_j = [d if len(d) > 0 else np.array([np.nan]) for d in data_j]
@@ -432,7 +462,8 @@ def plot_region_boxplots_by_ssp_matplotlib(df, policy, year=2050, regions=None, 
             vert=False,
             patch_artist=True,
             manage_ticks=False,
-            medianprops={'color': 'black', 'linewidth': 1.2}
+            medianprops={'color': 'black', 'linewidth': 1.2},
+            showfliers=False,
         )
         for patch in bp['boxes']:
             patch.set_facecolor(colors[j])
@@ -440,17 +471,20 @@ def plot_region_boxplots_by_ssp_matplotlib(df, policy, year=2050, regions=None, 
 
     ax.set_yticks(y)
     ax.set_yticklabels(final_regions)
-    ax.set_xlabel(f'Overall Cost of Capital (%, {year}, {technology}, {policy} policy coherence)')
+    ax.set_xlabel(f'Overall Cost of Capital (%, {year}, {technology}, {policy} Policy)')
 
     legend_patches = [Patch(facecolor=colors[i], label=ssp_list[i]) for i in range(n_ssp)]
     ax.legend(handles=legend_patches, title='Scenario', bbox_to_anchor=(1.05, 1), loc='upper left')
 
     plt.tight_layout()
-    st.pyplot(fig)
-    fig.savefig("./PLOTS/boxplots_region_aggregates_" + str(technology) + "_" + str(year) + "_" + policy + ".png", bbox_inches="tight", dpi=300)
+    if show is not None:
+        st.pyplot(fig)
+    fig.savefig("./PLOTS/boxplots_region_aggregates_" + str(technology) + "_" + str(year) + "_" + policy + ".png",
+                bbox_inches="tight", dpi=300)
 
 
-def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature', figsize=(20, 12), save_path='wacc_world_heatmap.png', show=True, vmin=None, vmax=None, policy=None):
+def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature', figsize=(20, 12),
+                            save_path='wacc_world_heatmap.png', show=True, vmin=None, vmax=None, policy=None):
     """Plot five subplots (one per SSP) showing world map heatmaps of Overall Cost of Capital by country.
 
     Parameters
@@ -481,38 +515,38 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature',
     (fig, axes)
         The matplotlib figure and axes objects.
     """
-    
+
     # Load world map from Natural Earth data (via URL)
     url = "https://naciscdn.org/naturalearth/110m/cultural/ne_110m_admin_0_countries.zip"
     world = gpd.read_file(url)
-    
+
     # SSP list
     ssp_list = ['SSP1', 'SSP2', 'SSP3', 'SSP4', 'SSP5']
-    
+
     # Filter data by year and technology
     plot_df = selected_scenario[
-        (selected_scenario['Year'] == year_choice) & 
+        (selected_scenario['Year'] == year_choice) &
         (selected_scenario['Technology'] == technology)
-    ].copy()
-    
+        ].copy()
+
     if plot_df.empty:
         raise ValueError(f"No data available for year {year_choice} and technology {technology}")
-    
+
     # Merge country codes to ISO3 codes for mapping to geopandas
     # Try to use 'Country code' if available, otherwise use 'iso_a3' from the data
     if 'Country code' not in plot_df.columns:
         st.warning("No 'Country code' column found in data.")
         return None, None
-    
+
     # Use Country code as the merge key
     code_column = 'Country code'
-    
+
     # Prepare data: group by Scenario and Country code, taking the mean of Overall Cost of Capital
     plot_df_agg = plot_df.groupby(['Scenario', code_column])['Overall Cost of Capital'].mean().reset_index()
-    
+
     # Create figure with 5 subplots in a single column
     fig, axes = plt.subplots(5, 1, figsize=figsize)
-    
+
     # Calculate min and max for consistent colorbar across all subplots
     if vmin is None:
         vmin = plot_df_agg['Overall Cost of Capital'].min()
@@ -520,14 +554,14 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature',
         vmax = plot_df_agg['Overall Cost of Capital'].max()
     cmap = plt.cm.RdYlGn_r  # Red=high, Yellow=medium, Green=low
     norm = Normalize(vmin=vmin, vmax=vmax)
-    
+
     # Plot each SSP
     for idx, ssp in enumerate(ssp_list):
         ax = axes[idx]
-        
+
         # Filter data for this SSP
         ssp_data = plot_df_agg[plot_df_agg['Scenario'] == ssp].copy()
-        
+
         # Merge with world map
         world_plot = world.merge(
             ssp_data,
@@ -535,10 +569,10 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature',
             right_on=code_column,
             how='left'
         )
-        
+
         # Plot base map (light gray for countries without data)
         world.plot(ax=ax, color='#f0f0f0', edgecolor='#cccccc', linewidth=0.5)
-        
+
         # Plot data
         world_plot_with_data = world_plot[world_plot['Overall Cost of Capital'].notna()]
         world_no_data = world_plot[world_plot['Overall Cost of Capital'].isna()]
@@ -553,13 +587,13 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature',
         )
 
         world_no_data.plot(
-        ax=ax,
-        color='#f0f0f0',      # grey them out
-        edgecolor='#cccccc',
-        linewidth=0.3,
-        hatch='////' 
+            ax=ax,
+            color='#f0f0f0',  # grey them out
+            edgecolor='#cccccc',
+            linewidth=0.3,
+            hatch='////'
         )
-        
+
         ax.set_title(f'{ssp} - {technology}, {policy} Policy ({year_choice})', fontsize=12, fontweight='bold')
         ax.set_xlabel('')
         ax.set_ylabel('')
@@ -567,29 +601,31 @@ def plot_wacc_world_heatmap(selected_scenario, year_choice, technology='Mature',
         ax.set_yticks([])
         ax.set_ylim([-65, 90])
         ax.set_xlim([-180, 180])
-    
-    fig.suptitle(f'World Map Heatmap: ({technology}, {year_choice})', 
+
+    fig.suptitle(f'World Map Heatmap: ({technology}, {year_choice})',
                  fontsize=14, fontweight='bold', y=0.99)
     plt.tight_layout(rect=[0, 0, 1, 0.94])
-    
+
     # Add a single horizontal colorbar at the top, matching subplot width and position
     # Do this after tight_layout so axis positions are finalized
     first_ax = axes[0]
     ax_pos = first_ax.get_position()
-    
+
     # Create colorbar with same width and x position as the subplot
     cbar_ax = fig.add_axes([ax_pos.x0, 0.94, ax_pos.width, 0.015])
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = fig.colorbar(sm, cax=cbar_ax, orientation='horizontal', extend='max')
     cbar.set_label('Overall Cost of Capital (%)', fontsize=10)
-    
+
     if save_path:
-        fig.savefig(save_path + str(year_choice) + '-' + str(technology) + '-' + str(policy) + '-' + str(sensitivity) + '.png', bbox_inches='tight', dpi=300)
+        fig.savefig(
+            save_path + str(year_choice) + '-' + str(technology) + '-' + str(policy) + '-' + str(sensitivity) + '.png',
+            bbox_inches='tight', dpi=300)
     if show:
         plt.show()
         st.pyplot(fig)
-    
+
     return fig, axes
 
 
@@ -598,29 +634,34 @@ st.write(
     "Dashboard work in progress: enables easy visualisation of the results and underlying model framework"
 )
 
-
-wacc_calculator = WaccCalculator(GDP_data="GDP_Historical.csv", SSP_data="SSP_OECD_ENV.csv", CRP="Collated_CRP_CDS.xlsx", 
-                                 CDS="Collated_CRP_CDS.xlsx", tax_data="CORPORATE_TAX_DATA.csv", debt_data="IMF_Government_Debt.csv", 
-                                 inflation_data = "IMF_Inflation_Rates.csv", deficit_data="IMF_Overall_Balance.csv", country_coding="Country_Coding.csv")
+wacc_calculator = WaccCalculator(GDP_data="GDP_Historical_PPP.csv", SSP_data="SSP_OECD_ENV_GDP_PC.csv",
+                                 CRP="Collated_CRP_CDS.xlsx",
+                                 CDS="Collated_CRP_CDS.xlsx", tax_data="CORPORATE_TAX_DATA.csv",
+                                 debt_data="IMF_Government_Debt.csv",
+                                 inflation_data="IMF_Inflation_Rates.csv", deficit_data="IMF_Overall_Balance.csv",
+                                 revenue_data="IMF_Gov_Primary_Balance.csv", servicing_data="WBG_Debt_Servicing.csv",
+                                 country_coding="Country_Coding.csv", SSP_GDP="SSP_OECD_ENV_GDP.csv")
 fig, ax = plot_dgs10_line(save_path='dgs10_plot.png', show=False)
 scenario = wacc_calculator.calculate_wacc_scenarios()
 low_scenario = wacc_calculator.calculate_wacc_scenarios(sensitivity="Low")
 high_scenario = wacc_calculator.calculate_wacc_scenarios(sensitivity="High")
-missing_values =  set(wacc_calculator.CRP['Country code'].unique().tolist()) ^ set(scenario['Country code'].unique().tolist())
-name_value_dict = dict(zip(wacc_calculator.country_coding['Country code'], wacc_calculator.country_coding['Country Name']))
+missing_values = set(wacc_calculator.CRP['Country code'].unique().tolist()) ^ set(
+    scenario['Country code'].unique().tolist())
+name_value_dict = dict(
+    zip(wacc_calculator.country_coding['Country code'], wacc_calculator.country_coding['Country Name']))
 missing_names = [name_value_dict.get(code, code) for code in missing_values]
 
-
 technology = st.selectbox(
-            "Technology Maturity", scenario["Technology"].unique(), 
-            index=0, placeholder="Select Technology...", key="Technology")
+    "Technology Maturity", scenario["Technology"].unique(),
+    index=0, placeholder="Select Technology...", key="Technology")
 policy = st.selectbox(
-            "Policy Coherence", scenario["Policy Coherence"].unique(), 
-            index=0, placeholder="Select Policy Coherence...", key="Policy Coherence")
+    "Policy Maturity", scenario["Policy Maturity"].unique(),
+    index=0, placeholder="Select Policy Maturity...", key="Policy Maturity")
 sensitivity = st.selectbox(
-            "Sensitivity Scenario", ["Low", "Central", "High"], 
-            index=1, placeholder="Select Low/Central/High Estimates...", key="Sensitivity")
-tab1, tab11, tab2, tab3, tab4, tab5 = st.tabs(["Country-level CoE", "Country-level CoD","Regional Comparisons", "EMDEs", "Advanced Economies", "World Map"])
+    "Sensitivity Scenario", ["Low", "Central", "High"],
+    index=1, placeholder="Select Low/Central/High Estimates...", key="Sensitivity")
+tab1, tab11, tab2, tab3, tab4, tab5 = st.tabs(
+    ["Country-level CoE", "Country-level CoD", "Regional Comparisons", "EMDEs", "Advanced Economies", "World Map"])
 if sensitivity == "Low":
     selected_scenario = low_scenario
 elif sensitivity == "High":
@@ -630,19 +671,25 @@ else:
 
 with tab1:
     SSP = st.selectbox(
-            "SSP", ("SSP1", "SSP2", "SSP3", "SSP4", "SSP5"), 
-            index=0, key="SSP", placeholder="Select SSP...")
+        "SSP", ("SSP1", "SSP2", "SSP3", "SSP4", "SSP5"),
+        index=0, key="SSP", placeholder="Select SSP...")
     country = st.selectbox(
-            "Displayed Country", scenario["Country Name"].unique(), 
-            index=0, placeholder="Select Country...", key="Country")
+        "Displayed Country", scenario["Country Name"].unique(),
+        index=0, placeholder="Select Country...", key="Country")
     # Select data based on input
-    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology) & (selected_scenario["Policy Coherence"] == policy)]
-    plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium", "Technology Risk Premium (E)", "Policy Coherence Premium"]])
+    selected_data = selected_scenario.loc[
+        (selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country) & (
+                    selected_scenario["Technology"] == technology) & (selected_scenario["Policy Maturity"] == policy)]
+    plot_comparison_chart_equity(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Equity Risk Premium",
+                                                "Technology Risk Premium (E)", "Policy Maturity Premium"]])
 with tab11:
     st.write("Select inputs under CoD tab, but the same selections will apply to both charts.")
     # Select data based on input
-    selected_data = selected_scenario.loc[(selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country)  & (selected_scenario["Technology"] == technology) & (selected_scenario["Policy Coherence"] == policy)]
-    plot_comparison_chart_debt(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Technology Risk Premium", "Policy Coherence Premium"]])
+    selected_data = selected_scenario.loc[
+        (selected_scenario["Scenario"] == SSP) & (selected_scenario["Country Name"] == country) & (
+                    selected_scenario["Technology"] == technology) & (selected_scenario["Policy Maturity"] == policy)]
+    plot_comparison_chart_debt(selected_data[["Year", "Risk Free Rate", "Country Risk Premium", "Lenders Margin",
+                                              "Technology Risk Premium", "Policy Maturity Premium"]])
 
 with tab2:
     # Regional boxplots (easy to change year)
@@ -654,20 +701,68 @@ with tab2:
 with tab3:
     # Comparison across EMDEs and Advanced Economies for both technologies
     scenario_comparison = selected_scenario.loc[selected_scenario["Country Name"].isin(["EMDEs", "Advanced Economies"])]
-    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Policy Coherence"] == policy)*(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "EMDEs")])
+    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Policy Maturity"] == policy) * (
+                scenario_comparison["Technology"] == technology) * (scenario_comparison["Country Name"] == "EMDEs")])
     # Pass full scenario_comparison (both Clean and Fossil) to create side-by-side subplots
     plot_ssp_comparison_matplotlib(scenario_comparison)
     plot_ssp_comparison_range_matplotlib(scenario, low_scenario, high_scenario, technology='Mature')
 
 with tab4:
-    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Policy Coherence"] == policy)*(scenario_comparison["Technology"] == technology)*(scenario_comparison["Country Name"] == "Advanced Economies")])
+    plot_ssp_comparison(scenario_comparison[(scenario_comparison["Policy Maturity"] == policy) * (
+                scenario_comparison["Technology"] == technology) * (
+                                                        scenario_comparison["Country Name"] == "Advanced Economies")])
 
 with tab5:
     year_choice_map = st.selectbox('Year (for  global heatmaps)', years, index=default_index, key='world_map_year')
     selected_scenario.to_csv("selected_scenario.csv", index=False)
-    plot_wacc_world_heatmap(selected_scenario, year_choice_map, technology=technology, figsize=(20, 12), save_path='./PLOTS/wacc_world_heatmap', show=True, vmin=0, vmax=20, policy=policy)
+    plot_wacc_world_heatmap(selected_scenario, year_choice_map, technology=technology, figsize=(20, 12),
+                            save_path='./PLOTS/wacc_world_heatmap', vmin=4, vmax=16, policy=policy)
+
+y = 1
+for tech in ["Mature", "FOAK", "Early Commercial", "Scaling", "Commercial"]:
+    for pol in selected_scenario["Policy Maturity"].unique():
+        for year in [2030, 2050, 2100]:
+            if tech == "Early Commercial" or "FOAK":
+                vmax = 20
+            else:
+                vmax = 16
+            #plot_wacc_world_heatmap(selected_scenario, year, technology=tech, figsize=(20, 12),
+                                    #save_path='./PLOTS/wacc_world_heatmap', vmin=4, vmax=vmax, policy=pol)
+            #plot_region_boxplots_by_ssp_matplotlib(selected_scenario, year=year, technology=tech, policy=pol)
+
+selected_columns = ["Country Name", "Country code", "Region", "WBG Income Group (2025)", "Scenario", "Year", "Technology", "Policy Maturity", "GDP per capita (USD2017/pc, PPP)", "Total GDP (USD billion PPP, 2017)", "Overall Cost of Capital", "Cost of Debt", "Cost of Equity", "Risk Free Rate", "Country Risk Premium", "Country Default Spread", "Equity Risk Premium", "Technology Risk Premium", "Lenders Margin"]
+rename = {"wb_income_group": "WBG Income Group (2025)", "Total GDP (SSP)": "Total GDP (USD billion PPP, 2017)", "GDP per capita": "GDP per capita (USD2017/pc, PPP)"}
+wide_selected = ["Country Name", "Country code", "Region", "wb_income_group", "Scenario", "Technology","Policy Maturity", "Overall Cost of Capital", "Year"]
+for tech in ["Mature", "FOAK", "Early Commercial", "Scaling", "Commercial"]:
+    selected_df = scenario.loc[(scenario["Technology"] == technology)].rename(columns=rename)[selected_columns]
+    selected_df = selected_df.apply(lambda col: col.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x))
+    selected_df.to_csv("./FINAL/SSP_WACC_SCENARIOS_CENTRAL_" + str(tech).capitalize() + "_LONG.csv")
 
 
+    selected_df = low_scenario.loc[(low_scenario["Technology"] == technology)].rename(columns=rename)[selected_columns]
+    selected_df = selected_df.apply(
+        lambda col: col.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x))
+    selected_df.to_csv("./FINAL/SSP_WACC_SCENARIOS_LOW_" + str(tech).capitalize() + "_LONG.csv")
 
+    selected_df = high_scenario.loc[(high_scenario["Technology"] == technology)].rename(columns=rename)[selected_columns]
+    selected_df = selected_df.apply(
+        lambda col: col.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x))
+    selected_df.to_csv("./FINAL/SSP_WACC_SCENARIOS_HIGH_" + str(tech).capitalize() + "_LONG.csv")
 
-
+central_wide = scenario[wide_selected].rename(columns=rename, errors="ignore").pivot_table(index=["Country Name", "Country code", "Region", "WBG Income Group (2025)", "Scenario", "Technology", "Policy Maturity"],
+                                                                                           columns=["Year"], values=["Overall Cost of Capital"], aggfunc="mean")
+central_wide = central_wide.apply(
+            lambda col: col.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x))
+central_wide.to_csv("./FINAL/SSP_WACC_SCENARIOS_CENTRAL_WIDE.csv")
+low_wide = low_scenario[wide_selected].rename(columns=rename, errors="ignore").pivot_table(index=["Country Name", "Country code", "Region", "WBG Income Group (2025)", "Scenario", "Technology", "Policy Maturity"],
+                                                                                           columns=["Year"], values=["Overall Cost of Capital"], aggfunc="mean")
+low_wide  = low_wide.apply(
+            lambda col: col.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x))
+low_wide.to_csv("./FINAL/SSP_WACC_SCENARIOS_LOW_WIDE.csv")
+high_wide = high_scenario[wide_selected].rename(columns=rename, errors="ignore").pivot_table(index=["Country Name", "Country code", "Region", "WBG Income Group (2025)", "Scenario", "Technology", "Policy Maturity"],
+                                                                                           columns=["Year"], values=["Overall Cost of Capital"], aggfunc="mean")
+high_wide  = high_wide.apply(
+            lambda col: col.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x))
+high_wide.to_csv("./FINAL/SSP_WACC_SCENARIOS_HIGH_WIDE.csv")
+total_wide = _pd.concat([central_wide,low_wide, high_wide])
+total_wide.to_csv("./FINAL/SSP_WACC_SCENARIOS_ALL_WIDE.csv")
