@@ -601,6 +601,643 @@ class WaccCalculator:
 
         return gdp_coefficient
 
+    def _build_backtest_paths_three(
+            self,
+            merged_data,
+            gdp_beta,
+            gdp_beta_lag,
+            lagged_cds_beta,
+            start_year=2005,
+            end_year=2024,
+            split_emde_ae=True,
+            horizon=5,
+            floor_cds_at_zero=True
+    ):
+        """
+        Build three prediction paths:
+          1) GDP-only recursive
+          2) GDP + lagged CDS (dynamic: uses actual t-1 CDS)
+          3) GDP + lagged CDS (anchored: uses CDS at start of each rolling horizon window)
+
+        Returns eval_df with:
+          CDS_pred_gdp, CDS_pred_lag_dynamic, CDS_pred_lag_anchored
+          plus annual/cumulative delta fields.
+        """
+        import numpy as np
+        import pandas as pd
+
+        df = merged_data.copy()
+        req = ["Country code", "Year", "CDS", "GDP", "Country"]
+        miss = [c for c in req if c not in df.columns]
+        if miss:
+            raise ValueError(f"merged_data missing required columns: {miss}")
+
+        df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+        df["GDP"] = pd.to_numeric(df["GDP"], errors="coerce")
+        df["CDS"] = pd.to_numeric(df["CDS"], errors="coerce")
+        df = df.dropna(subset=["Country code", "Year", "CDS", "GDP"]).copy()
+        df["Year"] = df["Year"].astype(int)
+        df = df[(df["Year"] >= int(start_year)) & (df["Year"] <= int(end_year))].copy()
+        df = df.sort_values(["Country code", "Year"])
+
+        # Group mapping
+        df["Group"] = "All"
+        if split_emde_ae:
+            cc = self.country_coding[["Country code", "emde_advanced"]].drop_duplicates().copy()
+            df = df.merge(cc, on="Country code", how="left")
+            df["Group"] = np.where(df["emde_advanced"].eq("EMDEs"), "EMDEs", "Advanced Economies")
+            df.drop(columns=["emde_advanced"], inplace=True)
+
+        # GDP change
+        df["log_GDP"] = np.log(df["GDP"].clip(lower=1e-12))
+        df["dlog_GDP"] = df.groupby("Country code")["log_GDP"].diff()
+
+        # ---------- Path 1: GDP-only recursive ----------
+        df["d_pred_gdp"] = gdp_beta * df["dlog_GDP"]
+        out = []
+        for c, g in df.groupby("Country code", sort=False):
+            g = g.sort_values("Year").copy()
+            idx0 = g.index[0]
+            g.loc[idx0, "CDS_pred_gdp"] = g.loc[idx0, "CDS"]
+            for ip, ic in zip(g.index[:-1], g.index[1:]):
+                step = g.loc[ic, "d_pred_gdp"]
+                step = 0.0 if pd.isna(step) else float(step)
+                g.loc[ic, "CDS_pred_gdp"] = float(g.loc[ip, "CDS_pred_gdp"]) + step
+                if floor_cds_at_zero:
+                    g.loc[ic, "CDS_pred_gdp"] = max(0.0, float(g.loc[ic, "CDS_pred_gdp"]))
+            out.append(g)
+        df = pd.concat(out, ignore_index=True).sort_values(["Country code", "Year"])
+
+        # ---------- Path 2: Lagged dynamic (actual t-1 CDS) ----------
+        df["CDS_lag_actual"] = df.groupby("Country code")["CDS"].shift(1)
+        df["CDS_pred_lag_dynamic"] = (
+                lagged_cds_beta * df["CDS_lag_actual"] + gdp_beta_lag * df["dlog_GDP"]
+        )
+        # anchor first row per country
+        first_mask = df.groupby("Country code").cumcount() == 0
+        df.loc[first_mask, "CDS_pred_lag_dynamic"] = df.loc[first_mask, "CDS"]
+        if floor_cds_at_zero:
+            df["CDS_pred_lag_dynamic"] = df["CDS_pred_lag_dynamic"].clip(lower=0.0)
+
+        # ---------- Path 3: Lagged anchored (single fixed start-year CDS anchor) ----------
+        # For each country, use CDS at start_year as the fixed lagged level throughout:
+        # CDS_pred_lag_anchored_t = lagged_cds_beta * CDS_start + gdp_beta_lag * (logGDP_t - logGDP_start)
+
+        df["CDS_start"] = df.groupby("Country code")["CDS"].transform("first")
+        df["log_GDP_start"] = df.groupby("Country code")["log_GDP"].transform("first")
+        df["dlog_GDP_from_start"] = df["log_GDP"] - df["log_GDP_start"]
+
+        df["CDS_pred_lag_anchored"] = (
+                 df["CDS_start"] + gdp_beta_lag * df["dlog_GDP_from_start"]
+        )
+        # actual cumulative change from fixed start (comparator for anchored path)
+        df["d_actual_from_start"] = df["CDS"] - df["CDS_start"]
+
+        # optional: endpoint mask for horizon checks (e.g., 5y, 10y, ...)
+        # only keep years exactly at multiples of horizon from start
+        offset = df.groupby("Country code").cumcount()
+        df["is_horizon_endpoint"] = (offset % int(max(1, horizon)) == 0) & (offset > 0)
+
+        # keep exact equality at start year
+        first_mask = df.groupby("Country code").cumcount() == 0
+        df.loc[first_mask, "CDS_pred_lag_anchored"] = df.loc[first_mask, "CDS"]
+
+        if floor_cds_at_zero:
+            df["CDS_pred_lag_anchored"] = df["CDS_pred_lag_anchored"].clip(lower=0.0)
+        # anchored annualized equivalent relative to fixed start anchor
+        # (useful for annual scatter; this is "average annual change since start")
+        years_since_start = df.groupby("Country code").cumcount().replace(0, np.nan)
+        df["d_pred_lag_anchored"] = df.groupby("Country code")["CDS_pred_lag_anchored"].diff()
+
+        # k-year comparison from fixed start (not rolling)
+        df["d_pred_lag_anchored_k"] = df["CDS_pred_lag_anchored"] - df["CDS_start"]
+
+        # annual deltas
+        df["d_actual"] = df.groupby("Country code")["CDS"].diff()
+        df["d_pred_gdp"] = df.groupby("Country code")["CDS_pred_gdp"].diff()
+        df["d_pred_lag_dynamic"] = df.groupby("Country code")["CDS_pred_lag_dynamic"].diff()
+
+        # cumulative k-year changes
+        k = int(max(2, horizon))
+        df["d_actual_k"] = df.groupby("Country code")["CDS"].diff(k)
+        df["d_pred_gdp_k"] = df.groupby("Country code")["CDS_pred_gdp"].diff(k)
+        df["d_pred_lag_dynamic_k"] = df.groupby("Country code")["CDS_pred_lag_dynamic"].diff(k)
+
+        return df
+
+    def _plot_comparison_2x2(
+            self,
+            df,
+            pred_col_annual,
+            pred_col_k,
+            title_prefix,
+            group_col="Group",
+            year_col="Year",
+            split_emde_ae=True,
+            horizon=5,
+            start_year=None,  # NEW: needed for period bins in subplot (4)
+            end_year=None,  # NEW
+            save_path=None,
+            show=True
+    ):
+        import numpy as np
+        import pandas as pd
+        import matplotlib.pyplot as plt
+
+        x = df.copy()
+
+        # Optional year filtering
+        if start_year is not None:
+            x = x[x[year_col] >= int(start_year)]
+        if end_year is not None:
+            x = x[x[year_col] <= int(end_year)]
+
+        # median shock by group-year
+        x["resid"] = x["d_actual"] - x[pred_col_annual]
+        med_shock = (
+            x.groupby([year_col, group_col])["resid"]
+                .median()
+                .rename("median_shock")
+                .reset_index()
+        )
+        x = x.merge(med_shock, on=[year_col, group_col], how="left")
+
+        # shock-adjusted actual changes
+        x["d_actual_adj"] = x["d_actual"] - x["median_shock"]
+
+        # cumulative shock adjustment
+        k = int(max(2, horizon))
+        x = x.sort_values(["Country code", year_col]).copy()
+        x["median_shock_k"] = (
+            x.groupby("Country code")["median_shock"]
+                .rolling(k).sum()
+                .reset_index(level=0, drop=True)
+        )
+        x["d_actual_adj_k"] = x["d_actual_k"] - x["median_shock_k"]
+
+        annual = x.dropna(subset=["d_actual_adj", pred_col_annual]).copy()
+        roll = x.dropna(subset=["d_actual_adj_k", pred_col_k]).copy()
+
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        ax1, ax2, ax3, ax4 = axes.flatten()
+        colors = {"EMDEs": "#1f77b4", "Advanced Economies": "#ff7f0e"}
+
+        # ---------------- a) annual scatter ----------------
+        if split_emde_ae:
+            for g in ["EMDEs", "Advanced Economies"]:
+                s = annual[annual[group_col] == g]
+                if len(s):
+                    ax1.scatter(s[pred_col_annual], s["d_actual_adj"], s=18, alpha=0.35, color=colors[g], label=g)
+        else:
+            ax1.scatter(annual[pred_col_annual], annual["d_actual_adj"], s=18, alpha=0.35, label="All")
+
+        if len(annual):
+            lo = np.nanmin([annual[pred_col_annual].min(), annual["d_actual_adj"].min()])
+            hi = np.nanmax([annual[pred_col_annual].max(), annual["d_actual_adj"].max()])
+            ax1.plot([lo, hi], [lo, hi], "k--", lw=1)
+
+        ax1.set_title("Annual comparison (shock-adjusted)")
+        ax1.set_xlabel("Predicted annual ΔCDS")
+        ax1.set_ylabel("Actual annual ΔCDS (minus group-year median shock)")
+        ax1.grid(alpha=0.25)
+        ax1.legend(frameon=False)
+
+        # ---------------- b) k-year scatter ----------------
+        if split_emde_ae:
+            for g in ["EMDEs", "Advanced Economies"]:
+                s = roll[roll[group_col] == g]
+                if len(s):
+                    ax2.scatter(s[pred_col_k], s["d_actual_adj_k"], s=18, alpha=0.35, color=colors[g], label=g)
+        else:
+            ax2.scatter(roll[pred_col_k], roll["d_actual_adj_k"], s=18, alpha=0.35, label="All")
+
+        if len(roll):
+            lo2 = np.nanmin([roll[pred_col_k].min(), roll["d_actual_adj_k"].min()])
+            hi2 = np.nanmax([roll[pred_col_k].max(), roll["d_actual_adj_k"].max()])
+            ax2.plot([lo2, hi2], [lo2, hi2], "k--", lw=1)
+
+        ax2.set_title(f"{k}-year comparison (shock-adjusted)")
+        ax2.set_xlabel(f"Predicted {k}y ΔCDS")
+        ax2.set_ylabel(f"Actual {k}y ΔCDS (minus group-year median shock sum)")
+        ax2.grid(alpha=0.25)
+        ax2.legend(frameon=False)
+
+        # ---------------- c) new shock bar+line view ----------------
+        med_plot = (
+            x.groupby([year_col, group_col])["resid"]
+                .median()
+                .reset_index()
+                .pivot(index=year_col, columns=group_col, values="resid")
+                .sort_index()
+        )
+
+        years = med_plot.index.to_numpy()
+        width = 0.35
+
+        # bars: EMDE + Advanced median shocks
+        if "EMDEs" in med_plot.columns:
+            ax3.bar(years - width / 2, med_plot["EMDEs"].values, width=width, alpha=0.35,
+                    color=colors["EMDEs"], label="EMDE median shock")
+        if "Advanced Economies" in med_plot.columns:
+            ax3.bar(years + width / 2, med_plot["Advanced Economies"].values, width=width, alpha=0.35,
+                    color=colors["Advanced Economies"], label="Advanced median shock")
+
+        # overall median shock line
+        overall_med_shock = x.groupby(year_col)["resid"].median().sort_index()
+        ax3.plot(overall_med_shock.index, overall_med_shock.values, color="black", lw=2.0, label="Overall median shock")
+
+        # additional line: median YoY change external to shock (shock-adjusted median actual annual change)
+        external_med = x.groupby(year_col)["d_actual_adj"].median().sort_index()
+        ax3.plot(external_med.index, external_med.values, color="#2ca02c", lw=2.0, ls="--",
+                 label="Overall median external YoY change")
+
+        ax3.axhline(0, color="k", lw=1)
+        ax3.set_title("Median shock decomposition by group")
+        ax3.set_xlabel("Year")
+        ax3.set_ylabel("Median change")
+        ax3.grid(alpha=0.25)
+        ax3.legend(frameon=False)
+
+        # ---------------- d) boxplot + points by horizon periods and group ----------------
+        # absolute shock-adjusted annual error for chosen model
+        annual["abs_err_adj"] = (annual["d_actual_adj"] - annual[pred_col_annual]).abs()
+
+        # period binning by horizon length
+        if start_year is None:
+            sy = int(annual[year_col].min()) if len(annual) else 0
+        else:
+            sy = int(start_year)
+        if end_year is None:
+            ey = int(annual[year_col].max()) if len(annual) else sy
+        else:
+            ey = int(end_year)
+
+        # build non-overlapping period bins: [sy, sy+h], [sy+h+1, sy+2h], ...
+        bins = []
+        b0 = sy
+        while b0 <= ey:
+            b1 = min(b0 + k, ey)
+            bins.append((b0, b1))
+            b0 = b1 + 1
+
+        def _period_label(a, b):
+            return f"{a}-{b}"
+
+        annual["Period"] = None
+        for a, b in bins:
+            mask = (annual[year_col] >= a) & (annual[year_col] <= b)
+            annual.loc[mask, "Period"] = _period_label(a, b)
+
+        plot_df = annual.dropna(subset=["Period", "abs_err_adj"]).copy()
+
+        # collect boxplot arrays and positions
+        box_data = []
+        box_pos = []
+        box_labels = []
+        point_x = []
+        point_y = []
+        pos = 1
+        rng = np.random.default_rng(42)
+
+        groups_order = ["EMDEs", "Advanced Economies"] if split_emde_ae else ["All"]
+        for (a, b) in bins:
+            plab = _period_label(a, b)
+            for g in groups_order:
+                if split_emde_ae:
+                    vals = plot_df.loc[(plot_df["Period"] == plab) & (plot_df[group_col] == g), "abs_err_adj"].values
+                else:
+                    vals = plot_df.loc[plot_df["Period"] == plab, "abs_err_adj"].values
+
+                if len(vals) > 0:
+                    box_data.append(vals)
+                    box_pos.append(pos)
+                    box_labels.append(f"{plab}\n{g if split_emde_ae else ''}".strip())
+
+                    # jittered points
+                    jitter = rng.normal(0, 0.05, size=len(vals))
+                    point_x.extend(pos + jitter)
+                    point_y.extend(vals)
+                pos += 1
+            pos += 0.5  # visual gap between periods
+
+        if len(box_data) > 0:
+            bp = ax4.boxplot(box_data, positions=box_pos, widths=0.6, showfliers=False, patch_artist=True)
+            for i, patch in enumerate(bp["boxes"]):
+                # alternate by group
+                if split_emde_ae:
+                    if i % 2 == 0:
+                        patch.set_facecolor(colors["EMDEs"]);
+                        patch.set_alpha(0.35)
+                    else:
+                        patch.set_facecolor(colors["Advanced Economies"]);
+                        patch.set_alpha(0.35)
+                else:
+                    patch.set_facecolor("#4c78a8");
+                    patch.set_alpha(0.35)
+
+            ax4.scatter(point_x, point_y, s=8, alpha=0.35, color="black")
+            ax4.set_xticks(box_pos)
+            ax4.set_xticklabels(box_labels, rotation=45, ha="right", fontsize=8)
+
+        ax4.set_title("Shock-adjusted error distribution by horizon period and group")
+        ax4.set_ylabel("|Adjusted actual ΔCDS - Predicted ΔCDS|")
+        ax4.grid(alpha=0.25, axis="y")
+
+        # subplot labels
+        for lab, ax in zip(["a)", "b)", "c)", "d)"], [ax1, ax2, ax3, ax4]):
+            ax.text(0.01, 0.98, lab, transform=ax.transAxes, ha="left", va="top",
+                    fontsize=12, fontweight="bold")
+
+        fig.suptitle(title_prefix, fontsize=14, fontweight="bold")
+        fig.tight_layout()
+
+        if save_path:
+            fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        if show:
+            plt.show()
+
+        return fig, axes
+
+    def summarize_end_period_accuracy(
+            self,
+            eval_df,
+            end_year=None,
+            actual_col="CDS",
+            pred_cols=None,
+            split_emde_ae=True,
+            group_col="Group",
+            save_path=None
+    ):
+        import numpy as np
+        import pandas as pd
+
+        if pred_cols is None:
+            pred_cols = {
+                "GDP_only": "CDS_pred_gdp",
+                "Lagged_dynamic": "CDS_pred_lag_dynamic",
+                "Lagged_anchored": "CDS_pred_lag_anchored",
+            }
+
+        df = eval_df.copy()
+        df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+        df = df.dropna(subset=["Year", "Country code", actual_col]).copy()
+        df["Year"] = df["Year"].astype(int)
+
+        # choose end year
+        if end_year is None:
+            end_year = int(df["Year"].max())
+
+        # keep latest observation at end_year per country
+        eop = df[df["Year"] == int(end_year)].copy()
+        if eop.empty:
+            raise ValueError(f"No rows found for end_year={end_year}")
+
+        # fallback group handling
+        if split_emde_ae and group_col not in eop.columns:
+            split_emde_ae = False
+
+        def _metrics(sub, pred_col):
+            z = sub[[actual_col, pred_col]].dropna().copy()
+            if z.empty:
+                return {
+                    "N": 0,
+                    "Mean_Error": np.nan,
+                    "Median_Error": np.nan,
+                    "MAE": np.nan,
+                    "Median_AE": np.nan,
+                    "RMSE": np.nan,
+                    "Mean_Actual": np.nan,
+                    "Mean_Predicted": np.nan,
+                    "Bias_pct_of_actual_mean": np.nan
+                }
+
+            err = z[pred_col] - z[actual_col]
+            ae = np.abs(err)
+            rmse = np.sqrt(np.mean(err ** 2))
+            mean_actual = np.mean(z[actual_col])
+            mean_pred = np.mean(z[pred_col])
+
+            return {
+                "N": int(len(z)),
+                "Mean_Error": float(np.mean(err)),
+                "Median_Error": float(np.median(err)),
+                "MAE": float(np.mean(ae)),
+                "Median_AE": float(np.median(ae)),
+                "RMSE": float(rmse),
+                "Mean_Actual": float(mean_actual),
+                "Mean_Predicted": float(mean_pred),
+                "Bias_pct_of_actual_mean": float(100.0 * np.mean(err) / mean_actual) if mean_actual != 0 else np.nan
+            }
+
+        rows = []
+        for route_name, pred_col in pred_cols.items():
+            if pred_col not in eop.columns:
+                continue
+
+            # overall
+            rows.append({
+                "Route": route_name,
+                "Group": "All",
+                "End_Year": int(end_year),
+                **_metrics(eop, pred_col)
+            })
+
+            # split by group
+            if split_emde_ae:
+                for g in ["EMDEs", "Advanced Economies"]:
+                    sub = eop[eop[group_col] == g]
+                    rows.append({
+                        "Route": route_name,
+                        "Group": g,
+                        "End_Year": int(end_year),
+                        **_metrics(sub, pred_col)
+                    })
+
+        summary_df = pd.DataFrame(rows)
+
+        print("\nEnd-of-period accuracy summary:")
+        print(summary_df.to_string(index=False))
+
+        if save_path:
+            summary_df.to_csv(save_path, index=False)
+
+        return summary_df
+
+    def backtest_cds_predictive_power(
+            self,
+            merged_data,
+            gdp_beta,
+            gdp_beta_lag,
+            lagged_cds_beta,
+            start_year=2005,
+            end_year=2024,
+            horizon=5,
+            countries=None,
+            n_country_panels=8,
+            split_emde_ae=True,
+            floor_cds_at_zero=True,
+            save_prefix=None,
+            show=True
+    ):
+        """
+        Main backtest with 3 country-level lines and two separate 2x2 comparison figures.
+        """
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import math
+
+        eval_df = self._build_backtest_paths_three(
+            merged_data=merged_data,
+            gdp_beta=gdp_beta,
+            gdp_beta_lag=gdp_beta_lag,
+            lagged_cds_beta=lagged_cds_beta,
+            start_year=start_year,
+            end_year=end_year,
+            split_emde_ae=split_emde_ae,
+            horizon=horizon,
+            floor_cds_at_zero=floor_cds_at_zero
+        )
+
+        summary_df = self.summarize_end_period_accuracy(
+            eval_df=eval_df,
+            end_year=end_year,
+            split_emde_ae=True,
+            save_path=f"{save_prefix}_end_period_accuracy_summary.csv" if save_prefix else None
+        )
+
+        # ---------- Country panels (3 lines) ----------
+        if countries is None:
+            countries = (
+                eval_df.groupby("Country code")["Year"].nunique()
+                    .sort_values(ascending=False).head(int(n_country_panels)).index.tolist()
+            )
+        else:
+            countries = [c for c in countries if c in set(eval_df["Country code"])]
+
+        n = max(1, len(countries))
+        ncols = 3 if n >= 3 else n
+        nrows = int(math.ceil(n / ncols))
+        fig_country, axes = plt.subplots(nrows, ncols, figsize=(5.5 * ncols, 3.8 * nrows), sharex=True)
+        axes = np.array(axes).reshape(-1)
+
+        n = max(1, len(countries))
+        ncols = 3 if n >= 3 else n
+        nrows = int(math.ceil(n / ncols))
+        fig_country, axes = plt.subplots(nrows, ncols, figsize=(5.5 * ncols, 3.8 * nrows), sharex=True)
+        axes = np.array(axes).reshape(-1)
+
+        # --- first pass: plot and store row-level maxima ---
+        row_max = {r: 0.0 for r in range(nrows)}
+
+        for i, c in enumerate(countries):
+            ax = axes[i]
+            s = eval_df[eval_df["Country code"] == c].sort_values("Year")
+
+            l1, = ax.plot(s["Year"], s["CDS"], color="black", lw=2.2, label="Actual CDS")
+            l2, = ax.plot(s["Year"], s["CDS_pred_gdp"], color="#1f77b4", lw=1.9, ls="--", label="GDP-only")
+            l3, = ax.plot(s["Year"], s["CDS_pred_lag_dynamic"], color="#d62728", lw=1.9, ls="-.",
+                          label="GDP + lagged CDS (dynamic)")
+            l4, = ax.plot(s["Year"], s["CDS_pred_lag_anchored"], color="#2ca02c", lw=1.9, ls=":",
+                          label=f"GDP + lagged CDS (anchored {horizon}y)")
+            ax.set_title(s["Country"].values[0], fontsize=12)
+            ax.grid(alpha=0.3)
+
+            # (2) x-axis ticks on all subplots
+            years = s["Year"].dropna().astype(int)
+            if len(years) > 0:
+                xmin, xmax = years.min(), years.max()
+                step = 5 if (xmax - xmin) > 10 else 2
+                xticks = np.arange(xmin, xmax + 1, step)
+                ax.set_xticks(xticks)
+                ax.tick_params(axis="x", labelbottom=True)  # force labels even with sharex=True
+
+            local_max = np.nanmax([
+                s["CDS"].max(),
+                s["CDS_pred_gdp"].max(),
+                s["CDS_pred_lag_dynamic"].max(),
+                s["CDS_pred_lag_anchored"].max()
+            ])
+            r = i // ncols
+            row_max[r] = max(row_max[r], float(local_max))
+
+        # --- second pass: apply y-limits/ticks per row ---
+        for i in range(len(countries)):
+            r = i // ncols
+            ymax = int(math.ceil(row_max[r])) if np.isfinite(row_max[r]) else 1
+            ymax = max(1, ymax)
+            axes[i].set_ylim(0, ymax)
+
+            # (3) whole-number y ticks only
+            axes[i].set_yticks(np.arange(0, ymax + 1, 1))
+
+        # hide unused axes
+        for j in range(len(countries), len(axes)):
+            axes[j].axis("off")
+
+        # (1) single legend at the top of the figure
+        fig_country.legend(
+            handles=[l1, l2, l3, l4],
+            labels=[h.get_label() for h in [l1, l2, l3, l4]],
+            loc="upper center",
+            ncol=4,
+            frameon=False,
+            fontsize=12,
+            bbox_to_anchor=(0.5, 1.01)
+        )
+
+        # leave room for top legend
+        fig_country.tight_layout(rect=[0, 0, 1, 0.98])
+
+        # ---------- Comparison figure A: GDP-only ----------
+        fig_gdp, axes_gdp = self._plot_comparison_2x2(
+            df=eval_df,
+            pred_col_annual="d_pred_gdp",
+            pred_col_k="d_pred_gdp_k",
+            title_prefix="Predictive comparison: GDP-only",
+            split_emde_ae=split_emde_ae,
+            horizon=horizon,
+            start_year=start_year,
+            end_year=end_year,
+            save_path=f"{save_prefix}_comparison_gdp_only.png" if save_prefix else None,
+            show=show
+        )
+
+        # ---------- Comparison figure B: lagged models ----------
+        # Use dynamic for annual and anchored for k-year as requested
+        fig_lag, axes_lag = self._plot_comparison_2x2(
+            df=eval_df,
+            pred_col_annual="d_pred_lag_dynamic",
+            pred_col_k="d_pred_lag_dynamic_k",
+            title_prefix=f"Predictive comparison: Lagged CDS (dynamic annual)",
+            split_emde_ae=split_emde_ae,
+            horizon=horizon,
+            start_year=start_year,
+            end_year=end_year,
+            save_path=f"{save_prefix}_comparison_lagged.png" if save_prefix else None,
+            show=show
+        )
+
+        # ---------- Comparison figure B: lagged models ----------
+        # Use dynamic for annual and anchored for k-year as requested
+        fig_lag_stat, axes_lag_stat = self._plot_comparison_2x2(
+            df=eval_df,
+            pred_col_annual="CDS_pred_lag_anchored",
+            pred_col_k="d_pred_lag_dynamic_k",
+            title_prefix=f"Predictive comparison: Lagged CDS (dynamic anchored {horizon}y)",
+            split_emde_ae=split_emde_ae,
+            horizon=horizon,
+            start_year=start_year,
+            end_year=end_year,
+            save_path=f"{save_prefix}_comparison_lagged_anchored.png" if save_prefix else None,
+            show=show
+        )
+
+        if save_prefix:
+            fig_country.savefig(f"{save_prefix}_country_panels_three_paths.png", dpi=300, bbox_inches="tight")
+            eval_df.to_csv(f"{save_prefix}_backtest_three_paths_points.csv", index=False)
+
+        return eval_df, (fig_country, fig_gdp, fig_lag)
+
     def evaluate_cds_gdp_v2(self):
 
         def power_law(x, a, b):
@@ -704,22 +1341,16 @@ class WaccCalculator:
 
         # Calculate with previous year
         fe_model_lagged = PanelOLS.from_formula(
-            "CDS ~ Log_GDP + Inflation + Deficit + Debt + Revenue + EntityEffects + TimeEffects",
+            "CDS ~ Log_GDP + Inflation + Deficit + Debt + Revenue + EntityEffects + TimeEffects + Lagged_CDS",
             data=panel_data, weights=weights_df)
         result_lagged = fe_model_lagged.fit(cov_type="clustered", cluster_entity=True, cluster_time=True)
         print(result_lagged.summary)
 
         # Coefficients
-        gdp_beta = result_lagged.params["Log_GDP"]
+        gdp_beta = result.params["Log_GDP"]
+        gdp_beta_lagged = result_lagged.params["Log_GDP"]
+        cds_beta_lagged = result_lagged.params["Lagged_CDS"]
         gdp_coefficient = gdp_beta
-
-        # Call plot function
-        # merged_data = merged_data.loc[merged_data["Year"] == 2022]
-        y_values = merged_data["CDS"].values
-        # self.plot_log_regression_v2(result, np.log(merged_data["GDP"]), merged_data["Inflation"], merged_data["Deficit"], merged_data["Debt"],
-        # merged_data["Servicing"], merged_data["Revenue"], y_values, figname="cds_regression.png")
-
-
 
         # --- Run models ---
         panel_data = merged_data.set_index(["Country code", "Year"])
@@ -766,7 +1397,24 @@ class WaccCalculator:
         print("\nClustered (Country) standard errors in parentheses")
         print("Signif. Codes: ***: 0.001, **: 0.01, *: 0.05, .: 0.1")
 
-        return gdp_coefficient
+        # Produce backtest plots
+        selected_countries = ["TUR", "NGA", "VNM", "MEX", "BRA", "IND", "IDN", "EGY", "ZAF", "POL"]
+        eval_df, figs = self.backtest_cds_predictive_power(
+            merged_data=merged_data,
+            gdp_beta=fitmain.params["Log_GDP"],  # GDP-only slope
+            gdp_beta_lag=fit8.params["Log_GDP"],  # GDP slope from lagged model
+            lagged_cds_beta=fit8.params["Lagged_CDS"],  # lagged CDS slope
+            countries=selected_countries,
+            start_year=2010,
+            end_year=2020,
+            horizon=10,  # or 10
+            split_emde_ae=True,
+            save_prefix="cds_gdp_backtest",
+            show=True
+        )
+
+
+        return gdp_coefficient, gdp_beta_lagged, cds_beta_lagged
 
     def calculate_wacc_scenarios(self, sensitivity=None):
 
@@ -829,19 +1477,19 @@ class WaccCalculator:
                 "Overall Cost of Capital"]
         group_cols = ['Scenario', 'Year', 'Technology', 'Region', 'Policy Maturity']
         median_results_region = self.calculate_weighted_mean(copied_data, weight_col, cols, group_cols)
-        median_results_region["Country Name"] = median_results_region["Region"] + " Mean"
+        median_results_region["Country Name"] = median_results_region["Region"] + " (GDP-weighted Mean)"
 
         cols = ["Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium",
                 "Technology Risk Premium", "Overall Cost of Capital"]
         group_cols = ['Scenario', 'Year', "Technology", 'Policy Maturity', 'wb_income_group']
         median_results_income = self.calculate_weighted_mean(copied_data, weight_col, cols, group_cols)
-        median_results_income["Country Name"] = median_results_income["wb_income_group"] + " Mean"
+        median_results_income["Country Name"] = median_results_income["wb_income_group"] + " (GDP-weighted Mean)"
 
         cols = ["Risk Free Rate", "Country Risk Premium", "Lenders Margin", "Equity Risk Premium",
                 "Technology Risk Premium", "Overall Cost of Capital", ]
         group_cols = ['Scenario', 'Year', "Technology", 'Policy Maturity', 'emde_advanced']
         median_results_aggs = self.calculate_weighted_mean(copied_data, weight_col, cols, group_cols)
-        median_results_aggs["Country Name"] = median_results_aggs["emde_advanced"]
+        median_results_aggs["Country Name"] = median_results_aggs["emde_advanced"] + " (GDP-weighted Mean)"
         aggregated_data = pd.concat([data, median_results_region, median_results_income, median_results_aggs],
                                     ignore_index=True)
 
@@ -962,6 +1610,80 @@ class WaccCalculator:
 
         return calculated_data
 
+
+    def simulate_lagged_cds_numpy(self,
+            df,
+            beta_log_gdp,
+            beta_lagged_cds,
+            crp_coefficient,
+            cds_base,  # scalar OR dict/Series keyed by country
+            country_col="Country code",
+            year_col="Year",
+            gdp_col="GDP per capita",
+            cds_out_col="Country Default Spread (Lagged)",
+            crp_out_col="Country Risk Premium (Lagged)",
+            base_year=2025,
+    ):
+        """
+        Implementation of:
+            CDS_t = CDS_base + u_t + beta_lagged_cds *(CDS_{t-1} - CDS_base)
+        where:
+            u_t = beta_log_gdp * log(GDP_t / GDP_base)
+        """
+
+        # keep original index for alignment
+        out = df.copy().sort_values([country_col, year_col], kind="mergesort")
+        orig_idx = out.index
+
+        # align cds_base row-wise to sorted out
+        if np.isscalar(cds_base):
+            out["_cds_base"] = float(cds_base)
+        else:
+            # cds_base is Series from unsorted collated_results
+            out["_cds_base"] = pd.Series(cds_base).reindex(orig_idx).to_numpy()
+
+        out = out.reset_index(drop=True)
+
+        # baseline GDP merge (preserve order)
+        out["_row_id"] = np.arange(len(out))
+        base = (
+            out.loc[out[year_col] == base_year, [country_col, gdp_col]]
+                .drop_duplicates(subset=[country_col])
+                .rename(columns={gdp_col: "_gdp_base"})
+        )
+        out = out.merge(base, on=country_col, how="left", sort=False, validate="many_to_one")
+        out = out.sort_values("_row_id", kind="mergesort").drop(columns="_row_id").reset_index(drop=True)
+
+        ratio = np.maximum(out[gdp_col].to_numpy(float) / out["_gdp_base"].to_numpy(float), 1.0)
+        gchg = np.log(ratio)
+
+        countries = out[country_col].to_numpy()
+        cds_base_arr = out["_cds_base"].to_numpy(float)
+
+        n = len(out)
+        cds_sim = np.empty(n, dtype=float)
+        beta = float(beta_log_gdp)
+        rho = float(beta_lagged_cds)
+
+        change = np.empty(n, dtype=bool)
+        change[0] = True
+        change[1:] = countries[1:] != countries[:-1]
+        starts = np.flatnonzero(change)
+        ends = np.r_[starts[1:], n]
+
+        for s, e in zip(starts, ends):
+            b = cds_base_arr[s]
+            prev = b
+            for i in range(s, e):
+                cur = b + beta * gchg[i] + rho * (prev - b)
+                cds_sim[i] = cur
+                prev = cur
+
+        out[cds_out_col] = cds_sim
+        out[crp_out_col] = crp_coefficient * cds_sim
+        return out.drop(columns=["_gdp_base", "_cds_base"])
+
+
     def calculate_country_risk(self):
 
         # 1. Interpolate future GDP per capita ranges
@@ -1004,26 +1726,38 @@ class WaccCalculator:
             "Country Default Spread"]
 
         # Get values for gdp to cds relationship through regression
-        self.cds_gdp = self.evaluate_cds_gdp_v2()
+        self.cds_gdp, self.cds_gdp_lagged, self.cds_lagged_beta = self.evaluate_cds_gdp_v2()
         crp_coefficient = 1.35
 
+        # Get original values for the baseline
+        cds0 = collated_results["Country Default Spread"]
+        crp0 = collated_results["Country Risk Premium"]
+
         # 2. Convert GDP per capita to country risk premium
-        collated_results["Country Risk Premium"] = collated_results[
-                                                       "Country Risk Premium"] + self.cds_gdp * crp_coefficient * np.log(
+        collated_results["Country Risk Premium"] = crp0 + self.cds_gdp * crp_coefficient * np.log(
             np.maximum(collated_results["GDP " \
                              "per capita"] / collated_results["GDP per capita 2025"], 1))
 
+
+
         # 3. Convert GDP per capita to country default spread
-        collated_results["Country Default Spread"] = collated_results["Country Default Spread"] + self.cds_gdp * np.log(
+        collated_results["Country Default Spread"] = cds0 + self.cds_gdp * np.log(
             np.maximum(collated_results["GDP " \
                              "per capita"] / collated_results["GDP per capita 2025"],1))
+
+        # 4. Add in lagged country risks
+        collated_results = self.simulate_lagged_cds_numpy(collated_results, self.cds_gdp_lagged, self.cds_lagged_beta,
+                                              crp_coefficient, cds0)
+
 
         # Clip results for zero
         collated_results["Country Risk Premium"] = collated_results["Country Risk Premium"].clip(lower=0)
         collated_results["Country Default Spread"] = collated_results["Country Default Spread"].clip(lower=0)
+        collated_results["Country Risk Premium (Lagged)"] = collated_results["Country Risk Premium (Lagged)"].clip(lower=0)
+        collated_results["Country Default Spread (Lagged)"] = collated_results["Country Default Spread (Lagged)"].clip(lower=0)
 
         # 4. Drop intermediate columns
-        collated_results = collated_results.drop(columns=["GDP per capita 2025"], axis=1)
+        #collated_results = collated_results.drop(columns=["GDP per capita 2025"], axis=1)
 
 
         return collated_results
