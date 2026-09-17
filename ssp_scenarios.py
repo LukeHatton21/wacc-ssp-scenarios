@@ -466,9 +466,9 @@ def export_country_risk_scenarios(scenario, final_dir='./FINAL'):
     remove = ['Country Risk Premium', 'Country Default Spread', 'Country Risk Premium (Lagged)', 'Country Default Spread (Lagged)']
     selected_columns_wide = [x for x in selected_columns if x not in remove]
     def _to_wide(df, value="Country Default Spread"):
-        out = df[selected_columns_wide + [value]].rename(columns=rename, errors='ignore').pivot_table(
-            index=['Country Name', 'Country code', 'Region', 'WBG Income Group (2025)','GDP per capita (USD2017/pc, PPP)', 'Total GDP (USD billion PPP, 2017)','Scenario'],
-            columns=['Year'], values=[value], aggfunc='mean'
+        out = df[['Country Name', 'Country code', 'Region', 'WBG Income Group (2025)', 'Scenario', 'Year',value]].pivot_table(
+            index=['Country Name', 'Country code', 'Region', 'WBG Income Group (2025)','Scenario'],
+            columns=['Year'], values=value, aggfunc='mean'
         )
         out = out.apply(lambda col: col.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x))
         return out
@@ -484,8 +484,8 @@ def export_country_risk_scenarios(scenario, final_dir='./FINAL'):
 
     # Save to the output folder
     country_risk_scenario.to_csv(f'{final_dir}/SSP_WACC_SCENARIOS_COUNTRY_RISKS_LONG.csv', index=False)
-    country_risk_scenario_wide.to_csv(f'{final_dir}/SSP_WACC_SCENARIOS_COUNTRY_RISKS_WIDE.csv', index=False)
-    country_risk_wide_lagged.to_csv(f'{final_dir}/SSP_WACC_SCENARIOS_COUNTRY_RISKS_LAGGEDCDS_WIDE.csv', index=False)
+    country_risk_scenario_wide.reset_index().to_csv(f'{final_dir}/SSP_WACC_SCENARIOS_COUNTRY_DEFAULT_SPREAD_WIDE.csv', index=False)
+    country_risk_wide_lagged.reset_index().to_csv(f'{final_dir}/SSP_WACC_SCENARIOS_COUNTRY__DEFAULT_SPREAD_LAGGEDCDS_WIDE.csv', index=False)
 
 
 
